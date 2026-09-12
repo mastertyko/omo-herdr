@@ -1,73 +1,20 @@
 # omo-herdr backlog
 
-## Live overview usability
+## Scope
 
-Observed in the installed 0.1.4 viewer during a real OmO session on 2026-09-12.
+This extension provides native Herdr lifecycle reporting and sidebar metadata,
+including task counts and explicit task, result and PR/issue labels. The supplied
+sidebar profile keeps context usage hidden; the context tokens remain available
+for custom layouts.
 
-- [x] **Show meaningful task names.** Prefer a meaningful public name, then task summary, then a role-based fallback. Internal ID-like names no longer hide useful summaries; IDs remain secondary in Details. Tooltips expose clipped labels. Regression and rendered checks preserve the exclusion of prompts and transcripts.
-- [x] **Make activity entries distinguishable.** History now stores and displays each event's action, role, task label and state. State/tool transitions read differently, tool disappearance does not imply success, renames preserve old labels, and unchanged snapshots create no duplicates. Receipt time and available source timestamps remain distinct.
-- [x] **Improve the layout for small graphs.** Graphs with 1–3 tasks use normal-sized wider cards, multiline names, responsive independent-task rows and bounded automatic zoom. Compact desktop views use an inspector drawer. Browser checks cover 1/2/3 tasks and a 3-task dependency chain, including arrow anchors, fit, overlaps, viewport bounds and Summary navigation.
+Use [omo-herdr-dag](https://github.com/jc01rho/omo-herdr-dag) for the separate
+DAG/task viewer. This extension doesn't bundle, install or manage that viewer.
+Viewer work belongs in that project, not this backlog.
 
-- [x] **Clarify what the status counters count.** Both the tree and All agents summary count the main agent plus every reported task across the session. Waiting, blocked, paused, failed, cancelled, ready and unknown remain separate. Tests cover a working main agent after child completion, every state, filtering and an empty task list.
-- [x] **Distinguish current work from history and unavailable details.** Historical panels are labelled Recent activity. Working agents without a reported tool remain explicitly Working; historical icons use the event's captured status. The unsupported main-agent elapsed-time field is omitted.
-- [x] **Make the Results tab match its content.** Renamed to Summary. It displays the actual reported status with a matching badge and neutral explanation. Full responses and any test evidence remain in OmO; completion does not imply verified results. Both completed and working states were checked in desktop and drawer views.
+## Native integration follow-up
 
-Task labels, activity events, consistent counters, small-graph framing and Summary semantics are implemented locally. All 60 tests, typecheck, production build and host integration pass. Browser checks cover completed, mixed-state, renamed and empty tasks, plus 1/2/3-card layouts and a dependency chain at 1600×1000, 1057×661 and 720×900. This viewer change is ready for release; the separate producer still needs an agreed OmO release route.
+- [ ] Verify a human-driven OmO TUI/model run, including input prompts, cancellation
+  and reload, using the interactive check in [README.md](README.md).
 
-## Final review
-
-- [x] Separate reported source lists from explicitly related retrievals, including repeated requests.
-- [x] Preserve every reported owner status in the research graph.
-- [x] Reject stale research metadata across capture disable/re-enable.
-- [x] Filter credential-like metadata before producer publication while preserving original transport requests.
-- [x] Distinguish completed producer cache eviction from genuinely omitted terminal observations.
-- [x] Complete the reviewed preview package pair and record final release evidence. Viewer 0.1.5-research.20260912.4 and native OmO 5.0.0-0.beta.56.research.20260912.2 pass isolated installation, exact asset comparison, native coexistence and controlled librarian research. All 5 final-review findings are corrected and independently re-reviewed.
-
-## Research trail concept
-
-- [x] **Explore expandable search and source cards under an agent.** Implemented locally from the approved concept: connected search-query and source-page cards, query/time/title/link details, explicit distinction between returned results and fetched content, and a route back to the task graph. The research relationships remain separate from task dependencies.
-- [x] **Investigate the installed public event contract for research history.** Source inspection of OmO `5.0.0-0.beta.56` and the installed Senpi API on 2026-09-12 found no supported route that delivers librarian child searches and retrievals to omo-herdr with structured arguments/results. The existing task snapshot cannot supply this history. This is a finding about the inspected version, not a guarantee about future OmO versions; a new event contract still needs runtime verification.
-- [x] **Define an OmO research-event capability locally.** A separate source patch implements opt-in child observations and transport metadata, validated through real Senpi child/event-bus execution with controlled transports. It is not installed or published; official Herdr remains unchanged.
-- [x] **Build the research projection and expandable cards.** Implemented in the local omo-herdr working tree with explicit demo/live coverage, query and source inspectors, source filtering, stable card positions and distinct relation styles. Public research capture still depends on the separately released OmO producer.
-- [x] **Recognise established source websites visually.** Added 28 bundled website logos, including OpenAI, GitHub, X and common development/documentation sites. Shared icons appear in graph cards, result lists and details; unknown hosts use the globe. Browser checks cover matching domains, lookalike fallbacks, rendering, compact details and no external icon requests.
-- [x] **Verify a model-driven research run.** One real librarian completed a GitHub search and fetched Herdr's integration documentation with HTTP 200. Its 4 ordered research events produce a completed search and fetched source in the real viewer model, without delivery gaps. Browser replay of these events verified links, source status, provenance, and desktop/compact navigation. The test found and fixed rejection of the provider's composite tool-call IDs; a regression test preserves the correlation key and rejects control bytes.
-- [x] **Verify installable local preview packages.** Packed and installed both packages in a private npm consumer. The installed OmO launcher resolves pinned Senpi 2026.9.12-2 and emits research capability with the opt-in flag. The installed viewer reproduces the real captured search/retrieval and serves the complete matching frontend, including its favicon. The reviewed OmO postinstall was explicitly run against only the private consumer engine because npm blocked lifecycle scripts. Package manifests and checksums are recorded; no global installation or publication occurred.
-- [ ] **Integrate the producer through an agreed OmO release route.** Installed OmO does not emit the new contract. Keep that limitation visible; the local producer patch is reviewable but has not been submitted upstream.
-
-Current verification: real-model research, consumer replay, browser checks, 60 tests, typecheck and local package installation checks pass. The viewer preview now also includes the label, activity, counter, small-graph and Summary improvements in local package 0.1.5-research.20260912.4, paired with the reviewed OmO producer preview. Both installed extensions load together and the real captured research still projects correctly. The model host and package-test processes exited, their runtime sandboxes were removed, and protected configuration/authentication files remained unchanged. The viewer can be released independently; research capture still requires the OmO producer release route. The release plan documents both routes; viewer publication proceeds independently.
-
-### Implementation checkpoint — 2026-09-12
-
-The local viewer passes 53 tests, typecheck, production build, public-host research-event QA and official Herdr integration checks. Browser checks cover source/search/owner navigation, missing coverage, late events, session/workflow replacement, filters, one-shot completion pulses, disconnected/reduced motion, and card-arrow geometry at multiple graph zoom levels. Visual checks used 1600×1000, 1057×661 (150% browser-zoom equivalent) and 720×900 viewports. At narrower desktop sizes the inspector becomes a drawer, and short research layouts omit the recent-activity panel to preserve graph space. The Activity navigation remains available.
-
-The producer patch passes 32 focused tests and both package typechecks. Real Senpi child events replayed through the actual viewer model produce a completed search and fetched page with no delivery gaps. A separate direct test of the changed curated tool against `https://example.com` also returned actual HTTP 200, final URL and HTML metadata without exposing its body. The broad OmO suite has 3360 passing tests, 32 skips and 2 failures also reproduced on unchanged upstream: the bundle budget and Kibitzer retention. A subsequent real model-driven librarian run also passed; the viewer-side composite tool-call ID fix was verified against those exact captured events and all 53 consumer tests.
-
-Implemented consumer bounds are 256 operations total and 16 sources per search (the larger values below were initial design proposals). The interface also distinguishes an empty reported result list from unavailable result metadata. This paragraph records the earlier implementation checkpoint. The final review above supersedes its verification counts; the separate producer remains unpublished.
-
-### Verified data boundary
-
-- `omo.task.updated.live_progress.current_tool` is a temporary display value, constructed from the tool name and its first string argument. The argument preview is normalized and truncated to 80 characters; tool completion clears it. Task updates are coalesced for 150 ms, so short or parallel operations cannot be reconstructed reliably.
-- Librarian's curated `bash` tool accepts `{ program: "curl" | "gh", args: string[] }`. Its progress therefore generally exposes only `bash curl` or `bash gh`. The search phrase and URL are inside the argument array and are absent from that display value. omo-herdr deliberately retains only the tool identifier.
-- OmO's child manager receives the raw start/end events privately. In-process children load no extensions, so registering root hooks or a tool in omo-herdr does not automatically instrument the existing librarian. Public `pi.executeTool` executes a new call in its owning session; it is not a child-event observer.
-- The curated research tool currently returns bounded text with no structured details. Forwarding lifecycle events alone would not guarantee page titles, source lists, HTTP status or final redirect URLs. A successful process exit alone is insufficient to claim a successful page fetch; for example, curl without a fail flag can exit successfully for an HTTP error.
-- Evidence: installed OmO `plugin/extensions/omo-task.js` (progress formatter, child resource loader, curated research tool and child subscriptions); Senpi `docs/extensions.md` (tool lifecycle and children without extensions), `dist/core/extensions/types.d.ts` (`executeTool`), and `dist/core/agent-session.js` (session-bound execution). No private API is proposed as a product dependency. Investigation did not run models or alter the live session.
-
-### Proposed experience
-
-Keep Overview as the default. A librarian card gets a compact `Research` summary, such as `3 searches · 5 fetched sources`, only when supported events establish those counts. Expanding it reveals search and source cards in a branch; new activity updates the branch without expanding it or moving the user's selection automatically. Repeated requests remain separate history entries even if source URLs are grouped for display.
-
-Use distinct relations for `Searched`, `Returned` and `Fetched`, with a legend that separates them from task dependency arrows. A search result is not proof that the agent opened it. Link a retrieval to a particular search only when the producer reports that relationship; matching URLs alone does not establish why the agent fetched one. Otherwise attach the retrieval directly to the agent.
-
-Selecting a card shows the recorded query, time, provider, request state and available source title/link. Use `Requested`, `Fetched`, `Metadata only`, `Failed` or `Unknown` according to the evidence. `Fetched` does not claim the model read, cited or used the content. Show a hostname when no title is reported. An `Open source` action opens the recorded page separately; the viewer does not fetch pages in the background. Live pulses represent observed start/completion events and respect the existing reduced-motion and disconnected behavior.
-
-### Proposed contract and implementation order
-
-1. **Prove one child event path.** An OmO-owned capability publishes versioned observations with event ID, sequence, owning session, child session, task and tool-call IDs, timestamp, operation kind and phase. Optional allowlisted fields include provider, query, requested URL, confirmed final URL, response status/content kind, title and returned sources. An explicit originating-search ID is optional. Unknown fields stay unknown. The transport must preserve fast and concurrent events independently of task snapshot coalescing.
-2. **Start with known operations.** Recognize structured GitHub searches and HTTPS retrievals in the curated tool. Emit result lists only from supported structured responses. Record an unsupported operation as uncovered instead of parsing arbitrary text, assuming all librarian work is web research, or claiming universal search-provider support. Page metadata requires a transport-backed producer adapter, not guesses in the viewer.
-3. **Capture bounded history.** Keep observations in session-scoped memory with stable IDs, duplicate protection, explicit truncation counts and coverage states such as `Available`, `Partial` and `Unavailable`. Propose initial limits of 100 operations per task, 1,000 per session and 20 displayed sources per search. Validate ownership through reported session/task relationships, including nested agents. Clear on session replacement/shutdown. Define bounded replay/snapshots for late subscribers; never claim older history was captured if it was not.
-4. **Extend omo-herdr's allowlist deliberately.** This feature adds selected query/source fields to the current name/status-only boundary. Make research capture explicit, omit raw tool arguments, output bodies, headers, credentials and transcripts, and validate/redact source URLs before storing or rendering them. Render text as text and allow only supported web links. Update the documented data boundary alongside the implementation.
-5. **Render and verify.** Add the expandable research branch and inspector, preserving task DAG layout and the approved arrow geometry. Test parallel/repeated searches, fast completion, duplicate/out-of-order delivery, unknown ownership, reload gaps, truncation, failed/metadata-only requests, and session shutdown. Verify one real librarian search and retrieval end-to-end before claiming live support. Check the UI at 100% and 150% browser zoom.
-
-Implementation recommendation: prove the OmO event and metadata contract first, then build the bounded projection, then connect the cards. Work entirely inside omo-herdr can prepare the UI and capture supported main-agent calls, but it cannot currently deliver a complete librarian trail.
-
-No DAG dependencies were reported in the observed session. Showing independent tasks without arrows was correct; do not invent dependencies to fill the graph.
+Native session restore and `herdr integration install omo` require changes in
+Herdr itself and remain outside this package's scope.

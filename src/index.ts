@@ -5,7 +5,6 @@ import { claimPane, readEnvironment } from "./environment.ts";
 import { displayText, metadataFor } from "./metadata.ts";
 import { Overview } from "./overview.ts";
 import { cliTransport, Reporter } from "./reporter.ts";
-import { WebOverview } from "./web-overview.ts";
 
 export default function omoHerdr(pi: ExtensionAPI): void {
   const environment = readEnvironment(process.env);
@@ -16,20 +15,14 @@ export default function omoHerdr(pi: ExtensionAPI): void {
   let compacting = false;
   const tools = new Map<string, string>();
   let prompts: Array<{ kind: UIPromptKind; title?: string }> = [];
-  const web = environment ? new WebOverview(pi) : undefined;
 
   pi.registerCommand("herdr", {
-    description: "Open the graphical agent overview or inspect the Herdr integration",
-    argumentHint: "[web|status|doctor]",
+    description: "Inspect the Herdr integration",
+    argumentHint: "[status|doctor]",
     handler: async (args, ctx) => {
       const action = args.trim() || "status";
-      if (action === "web") {
-        if (web) await web.open(ctx);
-        else ctx.ui.notify("Open OmO inside Herdr to use the web overview.", "warning");
-        return;
-      }
       if (action !== "doctor" && action !== "status") {
-        ctx.ui.notify("Usage: /herdr [web|status|doctor]", "warning");
+        ctx.ui.notify("Usage: /herdr [status|doctor]", "warning");
         return;
       }
       ctx.ui.notify(await doctorReport(ctx, environment, reporter, metadataEnabled, action === "doctor"), "info");
@@ -52,7 +45,6 @@ export default function omoHerdr(pi: ExtensionAPI): void {
     const running = Array.from(tools.values());
     const activity = compacting ? "Compacting context" : running.length
       ? `Running ${running.at(-1)}${running.length > 1 ? ` (+${running.length - 1})` : ""}` : undefined;
-    web?.update(ctx, prompt ? "blocked" : active || compacting ? "running" : "idle", activity);
     reporter.report({
       state: prompt ? "blocked" : active || compacting ? "working" : "idle",
       message: prompt ? "Waiting for user input" : undefined,
@@ -72,7 +64,6 @@ export default function omoHerdr(pi: ExtensionAPI): void {
     // New/resumed/forked sessions can reuse the same extension instance.
     reset();
     overview?.start(ctx);
-    web?.start(ctx);
     active = !ctx.isIdle() || ctx.hasPendingMessages();
     compacting = ctx.isCompacting?.() ?? false;
     if (active || compacting) overview?.begin();
@@ -141,7 +132,6 @@ export default function omoHerdr(pi: ExtensionAPI): void {
   pi.on("model_select", (_event, ctx) => publish(ctx));
   pi.on("message_end", (_event, ctx) => publish(ctx));
   pi.on("session_shutdown", async event => {
-    await web?.stop(["new", "resume", "fork"].includes(event.reason));
     overview?.stop(["new", "resume", "fork"].includes(event.reason));
     const closing = reporter;
     reporter = undefined;
