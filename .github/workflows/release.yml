@@ -1,0 +1,258 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_run:
+    workflows: ["Auto-merge owner PRs"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release npm package
+    if: >-
+      vars.NPM_TRUSTED_PUBLISHING_ENABLED == 'true' &&
+      (
+          github.event_name == 'workflow_dispatch' ||
+          github.event_name == 'push' ||
+          (
+            github.event_name == 'workflow_run' &&
+            github.event.workflow_run.conclusion == 'success'
+          )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Wait for automatic merge
+        if: github.event_name == 'workflow_run'
+        env:
+          AUTO_MERGE_RUN_ID: ${{ github.event.workflow_run.id }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+
+          job_conclusion=$(gh api "repos/$REPOSITORY/actions/runs/$AUTO_MERGE_RUN_ID/jobs" \
+            --jq '[.jobs[] | select(.name == "Enable auto-merge")][0].conclusion // ""')
+          if [ "$job_conclusion" != "success" ]; then
+            echo "Auto-merge job did not succeed; refusing privileged release" >&2
+            exit 1
+          fi
+
+          pr_number=$(gh api "repos/$REPOSITORY/commits/$HEAD_SHA/pulls" \
+            --jq ".[] | select(.base.ref == \"main\" and .head.repo.full_name == \"$REPOSITORY\" and .user.login == \"$REPOSITORY_OWNER\") | .number" \
+            | head -n 1)
+          if [ -z "$pr_number" ]; then
+            echo "No trusted owner pull request found for auto-merge SHA $HEAD_SHA" >&2
+            exit 1
+          fi
+
+          for _ in $(seq 1 60); do
+            pr_json=$(gh pr view "$pr_number" --repo "$REPOSITORY" --json state,mergeCommit)
+            state=$(node -e 'const data = JSON.parse(process.argv[1]); process.stdout.write(data.state ?? "")' "$pr_json")
+            merge_sha=$(node -e 'const data = JSON.parse(process.argv[1]); process.stdout.write(data.mergeCommit?.oid ?? "")' "$pr_json")
+
+            if [ "$state" = "MERGED" ] && [ -n "$merge_sha" ]; then
+              exit 0
+            fi
+
+            if [ "$state" != "OPEN" ]; then
+              echo "Pull request $pr_number closed without merging" >&2
+              exit 1
+            fi
+
+            sleep 10
+          done
+
+          echo "Pull request $pr_number did not merge before the release timeout" >&2
+          exit 1
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+
+      - name: Set up Node for npm trusted publishing
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run checks
+        run: bun run check
+
+      - name: Resolve release version
+        id: version
+        run: |
+          set -euo pipefail
+
+          git fetch origin main --tags
+          git switch -C main origin/main
+
+          latest_tag=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1 || true)
+          if [ -n "$latest_tag" ]; then
+            latest_sha=$(git rev-list -n 1 "$latest_tag")
+            latest_parent=$(git rev-parse "${latest_sha}^" 2>/dev/null || true)
+            if [ "$latest_sha" = "$(git rev-parse HEAD)" ] || [ "$latest_parent" = "$(git rev-parse HEAD)" ]; then
+              {
+                echo "skip=true"
+                echo "reason=$latest_tag already releases main"
+              } >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          package_version=$(node -p 'require("./package.json").version')
+          head_subject=$(git log -1 --pretty=%s)
+          if [ "$head_subject" = "chore: release v$package_version" ] && [ "$latest_tag" != "v$package_version" ]; then
+            version="$package_version"
+          else
+            export PACKAGE_VERSION="$package_version"
+            export LATEST_VERSION="${latest_tag#v}"
+            version=$(node <<'NODE'
+          function parse(value) {
+            const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value);
+            if (!match) throw new Error(`Unsupported semver version: ${value}`);
+            return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]) };
+          }
+
+          function compare(left, right) {
+            return left.major - right.major || left.minor - right.minor || left.patch - right.patch;
+          }
+
+          const packageVersion = parse(process.env.PACKAGE_VERSION);
+          const latestVersion = process.env.LATEST_VERSION ? parse(process.env.LATEST_VERSION) : packageVersion;
+          const base = compare(packageVersion, latestVersion) >= 0 ? packageVersion : latestVersion;
+          process.stdout.write(`${base.major}.${base.minor}.${base.patch + 1}`);
+          NODE
+            )
+          fi
+
+          {
+            echo "skip=false"
+            echo "previous_tag=$latest_tag"
+            echo "version=$version"
+            echo "tag=v$version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Explain skipped release
+        if: steps.version.outputs.skip == 'true'
+        run: echo "Release skipped:${{ steps.version.outputs.reason }}"
+
+      - name: Update package version
+        if: steps.version.outputs.skip != 'true'
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          pkg.version = process.env.RELEASE_VERSION;
+          fs.writeFileSync("package.json", `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+      - name: Verify release package
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          bun run check
+          npm pack --dry-run
+
+      - name: Create release commit
+        id: commit
+        if: steps.version.outputs.skip != 'true'
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          branch="chore/release-$RELEASE_TAG"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git fetch origin "$branch"
+            git checkout --detach FETCH_HEAD
+            actual_version=$(node -p 'require("./package.json").version')
+            if [ "$actual_version" != "$RELEASE_VERSION" ]; then
+              echo "Existing $branch contains package version $actual_version, expected $RELEASE_VERSION" >&2
+              exit 1
+            fi
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git switch -C "$branch"
+            git add package.json
+            git commit -m "chore: release $RELEASE_TAG"
+            git push origin "HEAD:$branch"
+          fi
+
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Check npm publication state
+        id: npm
+        if: steps.version.outputs.skip != 'true'
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if npm view "omo-herdr@$PACKAGE_VERSION" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish package with npm trusted publishing
+        if: steps.version.outputs.skip != 'true' && steps.npm.outputs.exists != 'true'
+        run: npm publish --access public
+
+      - name: Create GitHub release notes
+        if: steps.version.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
+          RELEASE_SHA: ${{ steps.commit.outputs.sha }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "$RELEASE_TAG already exists"
+            exit 0
+          fi
+
+          notes_args=()
+          if [ -n "$PREVIOUS_TAG" ]; then
+            notes_args=(--notes-start-tag "$PREVIOUS_TAG")
+          fi
+
+          gh release create "$RELEASE_TAG" \
+            --target "$RELEASE_SHA" \
+            --title "$RELEASE_TAG" \
+            --generate-notes \
+            "${notes_args[@]}"
+
+      - name: Remove temporary release branch
+        if: steps.version.outputs.skip != 'true'
+        env:
+          RELEASE_BRANCH: ${{ steps.commit.outputs.branch }}
+        run: git push origin --delete "$RELEASE_BRANCH"
