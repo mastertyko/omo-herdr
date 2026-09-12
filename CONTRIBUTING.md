@@ -28,6 +28,13 @@ child-process isolation, and shutdown ordering. Use only Senpi's public extensio
 when updating OmO. Do not import private OmO modules or read task transcripts.
 Use `agent_settled`, not `agent_end`, to mark a run idle. Keep cleanup idempotent.
 
+The research consumer uses the explicitly versioned, opt-in draft contract in
+`src/research.ts`. Do not infer producer support from OmO's package version or turn
+task-status previews into research history. Validate ownership, capture capability,
+query/URL sanitization, missing deliveries, provenance and shutdown. Test the separate
+producer against the consumer before claiming live support; mock events alone do not
+prove support in an installed OmO release. The research UI fixture is always explicit.
+
 ## Pull requests
 
 GitHub Actions runs the required `Bun check` on pull requests and pushes to `main`.

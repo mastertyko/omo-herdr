@@ -231,6 +231,36 @@ export default function fixture(pi) {
   assert.deepEqual(state.runs[0]?.edges, [{ from: "api", to: "ui" }]);
   assert.ok(!JSON.stringify(state).includes("QA_PRIVATE_OUTPUT"));
   assert.ok(!JSON.stringify(state).includes("QA_FOREIGN_DATA"));
+  assert.equal(state.research.status, "unavailable");
+  await emit("omo.research.capability", {
+    schema_version: 1, root_session_id: root, parent_session_id: root,
+    producer: "omo", capture: "enabled", coverage: "supported-tools",
+    supported_operations: ["search", "retrieval"], sequence: 0, revision: 1,
+  });
+  const research = {
+    schema_version: 1, root_session_id: root, parent_session_id: root,
+    child_session_id: "qa-child", task_id: "st_backend", occurred_at: new Date().toISOString(),
+  };
+  await emit("omo.research.event", { ...research, event_id: "search-complete", operation_id: "search",
+    tool_call_id: "search-tool", sequence: 1, kind: "search", phase: "completed", query: "Herdr integration",
+    evidence: "search-results", sources: [{ title: "Herdr docs", url: "https://herdr.dev/docs/integrations/" }],
+    raw_result: "QA_PRIVATE_OUTPUT",
+  });
+  await emit("omo.research.event", { ...research, event_id: "retrieval-complete", operation_id: "retrieval",
+    tool_call_id: "retrieval-tool", sequence: 2, kind: "retrieval", phase: "completed",
+    requested_url: "https://herdr.dev/docs/integrations/", final_url: "https://herdr.dev/docs/integrations/",
+    http_status: 200, evidence: "response-received", related_search_id: "search",
+  });
+  await emit("omo.research.event", { ...research, event_id: "foreign-research", operation_id: "foreign",
+    tool_call_id: "foreign-tool", sequence: 3, kind: "search", phase: "completed", child_session_id: "foreign",
+    query: "QA_FOREIGN_DATA",
+  });
+  const researchState = await snapshot(url);
+  assert.equal(researchState.research.status, "available");
+  assert.deepEqual(researchState.research.records.map(r => r.state), ["completed", "fetched"]);
+  assert.equal(researchState.research.records[1]?.relatedSearchId, researchState.research.records[0]?.id);
+  assert.ok(!JSON.stringify(researchState).includes("QA_PRIVATE_OUTPUT"));
+  assert.ok(!JSON.stringify(researchState).includes("QA_FOREIGN_DATA"));
   await emit("omo.task.updated", {
     parent_session_id: "qa-child",
     tasks: [
@@ -267,6 +297,8 @@ export default function fixture(pi) {
   assert.notEqual(fresh.session.id, root);
   assert.deepEqual(fresh.tasks, []);
   assert.deepEqual(fresh.runs, []);
+  assert.deepEqual(fresh.research.records, []);
+  assert.equal(fresh.research.status, "unavailable");
   await emit("omo.task.updated", {
     parent_session_id: root,
     tasks: [{ task_id: "st_old", status: "running" }],
@@ -280,7 +312,7 @@ export default function fixture(pi) {
   );
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: Real Senpi loader, command context and public RPC bus deliver fixture task/DAG events to the built web overview.",
+    "PASS: Real Senpi loader, command context and public RPC bus deliver fixture task/DAG/research events to the built web overview.",
   );
   console.log(
     "PASS: Nested agent ownership, live updates, session isolation, replacement and HTTP shutdown.",

@@ -284,6 +284,29 @@ For larger sessions, search reveals matching agents together with their ancestor
 even inside collapsed branches. Clearing the search restores the collapsed state.
 Changing workflow resets the inspector to the main agent.
 
+Graphs with 1–3 tasks use wider cards with multiline names and a bounded initial
+zoom. Independent tasks wrap to the available width; larger dependency graphs
+retain their existing layout. Fit and Focus active avoid enlarging a small graph
+beyond its normal card size, while manual zoom remains available. At compact
+desktop widths, small graphs use a dismissible inspector drawer.
+
+The inspector's `Summary` tab describes the reported task or session status.
+Full responses and any test evidence remain in OmO; reported completion alone
+does not establish that tests passed or that the result was verified.
+
+Task labels prefer a meaningful reported name, then the reported summary. Internal
+task IDs remain in Details; a missing label uses a role-based name such as
+`Librarian task`. The tree count and `All agents` summary both include the main
+agent and every reported task across the session. Waiting, blocked, paused,
+failed and cancelled agents are counted separately, including while search is active.
+
+`Recent activity` records observed state and tool changes with the name, role and
+status captured at that time. Renaming a task does not rewrite its history.
+Timestamps show when this viewer observed an update; a source timestamp, when
+available, appears in the time tooltip. A tool disappearing from a snapshot does
+not imply that it succeeded. A working main agent without a reported tool stays
+marked Working, and its unsupported elapsed-time field is omitted.
+
 Subtle light dots follow dependencies feeding working tasks. A brief outgoing pulse
 marks an observed completion; opening a view does not replay old completions.
 Animation stops when disconnected and respects reduced-motion preferences. The
@@ -295,8 +318,9 @@ explicit child-session links; DAG edges describe task dependencies only. Nested
 agents are visible only if their snapshots reach this host's event bus. This
 integration does not read private task stores or transcripts. Missing data stays
 missing; it is never replaced with a demo. Status `Done` is not proof of passing
-tests. Prompts, final responses, assistant text and tool arguments are excluded.
-Only short names, summary labels, model names and current tool names are exposed.
+tests. Prompts, final responses, assistant text and raw tool arguments are excluded.
+The task view exposes short names, summary labels, model names and current tool names.
+Optional research capture adds selected query and source metadata as described below.
 
 Each active session gets a read-only loopback server and a random access link.
 The API requires a session token, rejects foreign origins/hosts, and serves no
@@ -304,6 +328,58 @@ filesystem paths outside the built frontend bundle. Everything is memory-only;
 closing/replacing the session invalidates its link and clears its data. The UI
 polls every 1.5 seconds, marks a lost connection and retries. Do not share live
 session links. Run `/herdr web` again after reload or session replacement.
+
+### Research trail
+
+Open **Research** beneath an agent, from its task card, or in its details to unfold
+searches and source cards. Selecting a card shows the recorded query, time, provider
+and evidence; **Open source** opens the reported URL in a separate tab. **Back to tasks**
+restores the task graph. Overview remains the default and incoming events never open
+the research branch automatically. On narrower screens, details open in a drawer.
+
+Source cards, result lists and details share locally bundled website logos. Supported
+sites include OpenAI/ChatGPT, GitHub, GitLab, Stack Overflow, Google, YouTube, Reddit,
+Discord, X/Twitter, DEV Community, Medium, CodePen, CodeSandbox, Replit, Figma, Slack,
+MDN Web Docs, npm, Node.js, React, TypeScript, Docker, Vercel, Next.js, Supabase,
+Python, Rust and Go. Icons follow the displayed source hostname; unknown sites use
+a globe. No favicon service or source-site request is made to load them. Asset
+provenance and licenses ship in `web/dist/client/third-party-icons.txt`.
+
+Solid lines are research actions; dashed lines are returned search results. These
+are separate from task dependencies. A returned URL is not a visited page. A source
+becomes **Fetched** only with explicit response evidence; metadata-only requests,
+failures and unknown outcomes retain their own status. A retrieval joins a particular
+search only when the producer reports that relationship. Matching URLs alone do not
+establish provenance. Repeated operations remain distinct, and existing cards keep
+their positions as observations arrive. **Fit research graph** deliberately repacks
+the displayed branch; **Fetched only** filters source cards.
+
+Search details list **Returned sources** separately from **Related retrievals**,
+with counts matching each list. Repeated retrievals keep their own status and time.
+The research owner card uses the same reported status as the agent tree.
+
+**Live producer status:** this repository implements the consumer for the draft
+`omo.research.capability` / `omo.research.event` contract in `src/research.ts`.
+The inspected OmO `5.0.0-0.beta.56` does not publish that contract. A separate local
+OmO producer patch passes a real model-driven librarian search and HTTPS retrieval;
+its captured public events also pass the viewer projection and browser checks.
+That producer is not published: updating omo-herdr alone does not enable librarian
+research capture. Official Herdr needs no changes. Without an explicit
+producer capability the viewer shows **Research history unavailable**, never demo data.
+
+Research capture is opt-in at the producer. The consumer requires the active root
+session and an observed parent/task/child relationship. It retains up to 256 operations
+and 16 sources per search in session-scoped memory, with explicit omissions and missing
+delivery counts. It captures live observations only, not transcripts or earlier sessions.
+The allowlist includes short queries, titles, provider names, web URLs and response
+metadata. Raw arguments, headers, credentials and response bodies are excluded;
+URLs are validated and stripped of credentials, fragments and unknown query parameters.
+Disabling capture or replacing/closing the session clears its research data.
+
+An illustrative scene is available at `?demo=1&scene=research`; append `&trail=1` to
+open its research branch directly. Demo queries and retrievals are fictional, and the
+page is visibly labelled **DEMO DATA**. Motion follows observed activity, stops on
+disconnection and respects reduced motion.
 
 ### Developing the overview
 
