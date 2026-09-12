@@ -83,6 +83,7 @@ The extension publishes the explicit session name as the pane title, with the fo
 | `$omo_context` | `42% (420/1000)`; `unknown` when usage is unavailable after compaction |
 | `$omo_activity` | `Running bash`, `Running read (+1)` or `Compacting context` |
 | `$omo_task` | Explicit short task label supplied by OmO |
+| `$omo_work_item` | Current PR/issue reference, e.g. `PR #42 · Issue #17` |
 | `$omo_tasks` | `2 running · 1 pending · 3 completed` |
 | `$omo_attention` | `Needs your input` or `1 failed task` |
 | `$omo_result` | Explicit outcome, e.g. `12 tests passed · PR #42` |
@@ -97,8 +98,8 @@ text are never copied automatically. The `herdr_summary` tool intentionally publ
 the short labels supplied to it. Session names and tool names are sanitized and length-limited for terminal display.
 
 For the complete session overview, merge [profiles/sidebar.toml](profiles/sidebar.toml)
-into your Herdr `config.toml`. It includes attention colors and context thresholds at 80%
-and 90%. The profile ships in the npm package. Keep a backup and replace an existing
+into your Herdr `config.toml`. It includes attention colors and elapsed time, but does not
+display context usage. The profile ships in the npm package. Keep a backup and replace an existing
 `[ui.sidebar.agents].rows` setting rather than defining the table twice. Use Herdr's global
 menu **reload config** to refresh the client's sidebar. `herdr server reload-config` refreshes
 the server configuration; client presentation also needs the client menu action.
@@ -126,9 +127,10 @@ Both explain missing configuration and inactive reporters, including nested proc
 
 ## Session overview and DAG coexistence
 
-`omo-herdr` owns the compact sidebar overview. `omo-herdr-dag` continues to own its
-separate DAG/task viewer. This extension does not create, close, rename or control that
-viewer, consume its snapshots, or change its installation.
+`omo-herdr` provides native lifecycle reporting and the compact sidebar overview,
+with no bundled web feature. Use [omo-herdr-dag](https://github.com/jc01rho/omo-herdr-dag)
+for the separate DAG/task viewer. This extension doesn't install or manage that viewer,
+create, close, rename or control it, or consume its snapshots.
 
 The adapter listens for `omo.task.updated` on Senpi's public shared event bus
 (`senpi:extension-rpc-event`). The payload is an OmO-specific, version-sensitive contract,
@@ -146,19 +148,25 @@ The event listener captures startup snapshots, filters other sessions and unsubs
 on unload. Session replacement clears the previous overview. If a future OmO version
 changes the payload, lifecycle reporting and other metadata continue independently.
 
-The model-facing `herdr_summary` tool accepts optional `task` and `result` strings, each
+The model-facing `herdr_summary` tool accepts optional `task`, `result` and `workItem` strings, each
 at most 160 characters (also sanitized to 160 UTF-8 bytes for Herdr). Its guideline asks
 OmO to supply a short task label at the start of substantial work and a verified result
 before finishing. For example:
 
 ```json
-{"task":"Implement login","result":"12 tests passed · PR #42"}
+{"task":"Implement login","workItem":"PR #42 · Issue #17","result":"12 tests passed"}
 ```
 
 These are explicit agent-reported labels, not independently inferred test/PR facts.
+When working on a PR or issue, OmO is instructed to set `workItem` at the start of each
+run and update it when the target changes or a PR is created. Include `owner/repo`
+when needed to distinguish repositories. No GitHub lookup or prompt scanning is used.
+The sidebar profile displays the reference in bold above the branch. Existing installs
+need the updated profile and an OmO reload/restart to load the new tool field.
 Empty strings clear fields. Labels are stored as custom entries in the current OmO session
 and restored from its active branch on reload/resume; this does not enable Herdr native
-session restore. A new run clears the previous result. Abort displays `Stopped`. Normal
+session restore. A new run clears the previous task, result and PR/issue reference.
+Abort displays `Stopped` and retains the reference. Normal
 shutdown clears Herdr metadata, while the saved session entry remains available on resume.
 
 Elapsed time starts at `agent_start`, survives automatic continuations and freezes at
@@ -234,7 +242,7 @@ and runs both checks on Linux. Neither check changes user configuration or calls
 
 ### Verification on 2026-09-12
 
-- TypeScript check and 22 automated tests passed.
+- TypeScript check and 24 automated tests passed.
 - Real Senpi loader/UI events and Herdr CLI passed the host smoke check.
 - An isolated **real Herdr 0.9.0 server** accepted and exposed the sequence
   `idle → working → blocked → working → idle → unknown` after release, with agent label `omo`.
@@ -267,134 +275,3 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the release workflow and bootstrap re
 - [Herdr session resume policy](https://github.com/herdrdev/herdr/blob/master/src/agent_resume.rs)
 
 The implementation uses Senpi's current events rather than copying OMP's different lifecycle API.
-
-## Graphical agent overview
-
-Run `/herdr web` inside an OmO TUI session in official Herdr to open the local
-web overview. It ships with this package; no separate frontend installation,
-Herdr fork, or replacement of `omo-herdr-dag` is needed. The browser opens only
-when you run the command. `Overview` is the initial view.
-
-The English interface has an agent tree, a dependency graph, an inspector,
-activity history, workflow selection, zoom and focus controls. Click a task or
-agent to inspect it, collapse its sub-agents, or inspect reported dependencies.
-`All tasks` also shows tasks outside the selected DAG without inventing edges.
-Narrow desktop panels use a dismissible inspector so the graph stays reachable.
-For larger sessions, search reveals matching agents together with their ancestors,
-even inside collapsed branches. Clearing the search restores the collapsed state.
-Changing workflow resets the inspector to the main agent.
-
-Graphs with 1–3 tasks use wider cards with multiline names and a bounded initial
-zoom. Independent tasks wrap to the available width; larger dependency graphs
-retain their existing layout. Fit and Focus active avoid enlarging a small graph
-beyond its normal card size, while manual zoom remains available. At compact
-desktop widths, small graphs use a dismissible inspector drawer.
-
-The inspector's `Summary` tab describes the reported task or session status.
-Full responses and any test evidence remain in OmO; reported completion alone
-does not establish that tests passed or that the result was verified.
-
-Task labels prefer a meaningful reported name, then the reported summary. Internal
-task IDs remain in Details; a missing label uses a role-based name such as
-`Librarian task`. The tree count and `All agents` summary both include the main
-agent and every reported task across the session. Waiting, blocked, paused,
-failed and cancelled agents are counted separately, including while search is active.
-
-`Recent activity` records observed state and tool changes with the name, role and
-status captured at that time. Renaming a task does not rewrite its history.
-Timestamps show when this viewer observed an update; a source timestamp, when
-available, appears in the time tooltip. A tool disappearing from a snapshot does
-not imply that it succeeded. A working main agent without a reported tool stays
-marked Working, and its unsupported elapsed-time field is omitted.
-
-Subtle light dots follow dependencies feeding working tasks. A brief outgoing pulse
-marks an observed completion; opening a view does not replay old completions.
-Animation stops when disconnected and respects reduced-motion preferences. The
-dots indicate task activity, not agent-to-agent message traffic.
-
-Data comes from OmO's version-sensitive `omo.task.updated` and
-`omo.dag.updated` snapshots over Senpi's public event bus. Agent ownership uses
-explicit child-session links; DAG edges describe task dependencies only. Nested
-agents are visible only if their snapshots reach this host's event bus. This
-integration does not read private task stores or transcripts. Missing data stays
-missing; it is never replaced with a demo. Status `Done` is not proof of passing
-tests. Prompts, final responses, assistant text and raw tool arguments are excluded.
-The task view exposes short names, summary labels, model names and current tool names.
-Optional research capture adds selected query and source metadata as described below.
-
-Each active session gets a read-only loopback server and a random access link.
-The API requires a session token, rejects foreign origins/hosts, and serves no
-filesystem paths outside the built frontend bundle. Everything is memory-only;
-closing/replacing the session invalidates its link and clears its data. The UI
-polls every 1.5 seconds, marks a lost connection and retries. Do not share live
-session links. Run `/herdr web` again after reload or session replacement.
-
-### Research trail
-
-Open **Research** beneath an agent, from its task card, or in its details to unfold
-searches and source cards. Selecting a card shows the recorded query, time, provider
-and evidence; **Open source** opens the reported URL in a separate tab. **Back to tasks**
-restores the task graph. Overview remains the default and incoming events never open
-the research branch automatically. On narrower screens, details open in a drawer.
-
-Source cards, result lists and details share locally bundled website logos. Supported
-sites include OpenAI/ChatGPT, GitHub, GitLab, Stack Overflow, Google, YouTube, Reddit,
-Discord, X/Twitter, DEV Community, Medium, CodePen, CodeSandbox, Replit, Figma, Slack,
-MDN Web Docs, npm, Node.js, React, TypeScript, Docker, Vercel, Next.js, Supabase,
-Python, Rust and Go. Icons follow the displayed source hostname; unknown sites use
-a globe. No favicon service or source-site request is made to load them. Asset
-provenance and licenses ship in `web/dist/client/third-party-icons.txt`.
-
-Solid lines are research actions; dashed lines are returned search results. These
-are separate from task dependencies. A returned URL is not a visited page. A source
-becomes **Fetched** only with explicit response evidence; metadata-only requests,
-failures and unknown outcomes retain their own status. A retrieval joins a particular
-search only when the producer reports that relationship. Matching URLs alone do not
-establish provenance. Repeated operations remain distinct, and existing cards keep
-their positions as observations arrive. **Fit research graph** deliberately repacks
-the displayed branch; **Fetched only** filters source cards.
-
-Search details list **Returned sources** separately from **Related retrievals**,
-with counts matching each list. Repeated retrievals keep their own status and time.
-The research owner card uses the same reported status as the agent tree.
-
-**Live producer status:** this repository implements the consumer for the draft
-`omo.research.capability` / `omo.research.event` contract in `src/research.ts`.
-The inspected OmO `5.0.0-0.beta.56` does not publish that contract. A separate local
-OmO producer patch passes a real model-driven librarian search and HTTPS retrieval;
-its captured public events also pass the viewer projection and browser checks.
-That producer is not published: updating omo-herdr alone does not enable librarian
-research capture. Official Herdr needs no changes. Without an explicit
-producer capability the viewer shows **Research history unavailable**, never demo data.
-
-Research capture is opt-in at the producer. The consumer requires the active root
-session and an observed parent/task/child relationship. It retains up to 256 operations
-and 16 sources per search in session-scoped memory, with explicit omissions and missing
-delivery counts. It captures live observations only, not transcripts or earlier sessions.
-The allowlist includes short queries, titles, provider names, web URLs and response
-metadata. Raw arguments, headers, credentials and response bodies are excluded;
-URLs are validated and stripped of credentials, fragments and unknown query parameters.
-Disabling capture or replacing/closing the session clears its research data.
-
-An illustrative scene is available at `?demo=1&scene=research`; append `&trail=1` to
-open its research branch directly. Demo queries and retrievals are fictional, and the
-page is visibly labelled **DEMO DATA**. Motion follows observed activity, stops on
-disconnection and respects reduced motion.
-
-### Developing the overview
-
-```sh
-bun install --frozen-lockfile
-npm --prefix web ci
-bun run check
-HERDR_BIN_PATH="$(command -v herdr)" bun run qa:web
-npm run dev -- --port 4173
-```
-
-Open `http://127.0.0.1:4173/?demo=1` for the explicitly marked design fixture.
-The development server binds to loopback. Normal sessions use the bundled
-production build, without Vite or an npm install at runtime.
-`npm pack` builds and includes `web/dist/client`; CI and releases install the
-locked web dependencies and build it before packaging. `qa:web` verifies the
-actual Senpi loader, command and RPC bus using controlled fixture events and an
-isolated Herdr socket. A real model-driven OmO run is a separate runtime check.

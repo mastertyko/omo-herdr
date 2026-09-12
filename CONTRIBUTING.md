@@ -7,11 +7,9 @@ dependencies; OMO supplies Senpi at runtime.
 
 ```sh
 bun install --frozen-lockfile
-npm --prefix web ci
 bun run check
 HERDR_BIN_PATH="$(command -v herdr)" bun run qa:host
 HERDR_BIN_PATH="$(command -v herdr)" bun run qa:live
-HERDR_BIN_PATH="$(command -v herdr)" bun run qa:web
 npm pack --dry-run
 ```
 
@@ -28,12 +26,9 @@ child-process isolation, and shutdown ordering. Use only Senpi's public extensio
 when updating OmO. Do not import private OmO modules or read task transcripts.
 Use `agent_settled`, not `agent_end`, to mark a run idle. Keep cleanup idempotent.
 
-The research consumer uses the explicitly versioned, opt-in draft contract in
-`src/research.ts`. Do not infer producer support from OmO's package version or turn
-task-status previews into research history. Validate ownership, capture capability,
-query/URL sanitization, missing deliveries, provenance and shutdown. Test the separate
-producer against the consumer before claiming live support; mock events alone do not
-prove support in an installed OmO release. The research UI fixture is always explicit.
+Keep changes scoped to native Herdr lifecycle reporting and sidebar metadata.
+The separate [omo-herdr-dag](https://github.com/jc01rho/omo-herdr-dag) project owns
+the DAG/task viewer. This extension doesn't bundle, install or manage that viewer.
 
 ## Pull requests
 

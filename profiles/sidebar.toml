@@ -4,11 +4,12 @@
 rows = [
   ["state_icon", "agent", "state_text"],
   ["$omo_worktree", "pane"],
+  [{ token = "$omo_work_item", bold = true }],
   [{ token = "$omo_branch", dim = true }],
   ["$omo_task"],
   ["$omo_tasks"],
   [{ token = "$omo_attention", fg = "#f9e2af", bold = true, rules = [{ contains = "failed", fg = "#f38ba8" }] }],
   ["$omo_result"],
-  [{ token = "$omo_context_meter", rules = [{ starts_with = "Critical", fg = "#f38ba8", bold = true }, { starts_with = "High", fg = "#f9e2af" }] }, "$omo_elapsed"],
+  ["$omo_elapsed"],
   ["workspace", "tab"],
 ]

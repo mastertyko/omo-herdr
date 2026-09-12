@@ -7,6 +7,7 @@ export const METADATA_TTL_MS = 45_000;
 const TOKEN_FIELDS = {
   omo_model: "model", omo_context: "context", omo_activity: "activity",
   omo_task: "task", omo_tasks: "tasks", omo_attention: "attention", omo_result: "result",
+  omo_work_item: "workItem",
   omo_branch: "branch", omo_worktree: "worktree", omo_elapsed: "elapsed",
   omo_context_meter: "contextMeter", omo_context_percent: "contextPercent",
 } as const;
@@ -21,6 +22,7 @@ export interface Metadata {
   tasks?: string;
   attention?: string;
   result?: string;
+  workItem?: string;
   branch?: string;
   worktree?: string;
   elapsed?: string;
