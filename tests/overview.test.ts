@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { createEventBus, SessionManager, type ExtensionAPI, type ExtensionContext, type ToolDefinition } from "@code-yeongyu/senpi";
 import { Overview, elapsed } from "../src/overview.ts";
 import { taskLabels, taskSnapshot } from "../src/tasks.ts";
-import { metadataFor } from "../src/metadata.ts";
+import { metadataArgs, metadataFor } from "../src/metadata.ts";
 import { gitContext } from "../src/git.ts";
 
 function payload(session: string, statuses: string[]) {
@@ -89,6 +89,41 @@ test("Git identity supports unborn branches, detached HEAD, worktrees, and ordin
     git("checkout", "--detach");
     assert.match((await gitContext(directory)).branch!, /^detached [a-f0-9]+$/);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("explicit PR and issue references reach Herdr, survive resume, and clear with new work", async () => {
+  const session = SessionManager.inMemory(tmpdir());
+  let tool!: ToolDefinition;
+  const api = { events: createEventBus(), registerTool: (value: ToolDefinition) => { tool = value; },
+    appendEntry: (kind: string, data: unknown) => session.appendCustomEntry(kind, data) } as unknown as ExtensionAPI;
+  const ctx = { mode: "tui", hasUI: true, cwd: tmpdir(), sessionManager: session } as unknown as ExtensionContext;
+  const overview = new Overview(api, () => {});
+  const tokens = () => metadataArgs(overview.metadata(false), 1, "w1:p1");
+  try {
+    overview.start(ctx);
+    overview.begin(1000);
+    const updated = await tool.execute("ref", { workItem: "\x1b[32mPR #42\x1b[0m · Issue #17\n" }, undefined, undefined, ctx);
+    assert.notEqual(updated.isError, true);
+    assert.ok(tokens().includes("omo_work_item=PR #42 · Issue #17"));
+    await tool.execute("label", { task: "Review fix" }, undefined, undefined, ctx);
+    assert.ok(tokens().includes("omo_work_item=PR #42 · Issue #17"), "partial updates preserve the reference");
+    overview.settle(true, 2000);
+    overview.stop();
+    overview.start(ctx);
+    assert.ok(tokens().includes("omo_work_item=PR #42 · Issue #17"), "resume restores the reference even after abort");
+    overview.begin(3000);
+    assert.ok(tokens().includes("omo_work_item"), "new work clears the old token");
+    await tool.execute("issue", { workItem: "Issue #18" }, undefined, undefined, ctx);
+    overview.begin(3500);
+    assert.ok(tokens().includes("omo_work_item=Issue #18"), "continuations retain the reference");
+    await tool.execute("clear", { workItem: "" }, undefined, undefined, ctx);
+    assert.ok(tokens().includes("omo_work_item"), "explicit empty value clears the token");
+    await tool.execute("pr", { workItem: "PR #43" }, undefined, undefined, ctx);
+    overview.stop(true);
+    session.newSession();
+    overview.start(ctx);
+    assert.ok(tokens().includes("omo_work_item"), "a new session never inherits the reference");
+  } finally { overview.stop(); }
 });
 
 test("context meter uses explicit thresholds and unknown usage never appears as zero", () => {

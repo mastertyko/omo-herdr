@@ -25,6 +25,7 @@ export class Overview {
   private worktree?: string;
   private task?: string;
   private result?: string;
+  private workItem?: string;
   private lastGit = 0;
   private gitInFlight = false;
   private generation = 0;
@@ -39,24 +40,26 @@ export class Overview {
     this.subscribe();
     pi.registerTool({
       name: "herdr_summary", label: "Herdr summary",
-      description: "Set a short task label or verified outcome in this session's Herdr sidebar. This only changes display metadata. Never include secrets, prompts or full output. Empty strings clear a field.",
+      description: "Set a short task label, current PR/issue reference or verified outcome in this session's Herdr sidebar. This only changes display metadata. Never include secrets, prompts or full output. Empty strings clear a field.",
       promptSnippet: "Set a concise Herdr sidebar task label and verified result.",
-      promptGuidelines: ["For substantial work in Herdr, call herdr_summary with a short task label at the start and a concise verified result before finishing. Do not claim tests passed, a commit, or a PR unless you have verified it."],
+      promptGuidelines: ["For substantial work in Herdr, call herdr_summary with a short task label at the start and a concise verified result before finishing. When working on a PR or issue, also set workItem to its known reference (for example PR #42 or Issue #17, including owner/repo when needed). Set it again at the start of each new run, update it when the target changes or a PR is created, and clear it with an empty string when no longer relevant. Do not claim tests passed, a commit, or a PR unless you have verified it."],
       parameters: { type: "object", properties: {
         task: { type: "string", maxLength: 160, description: "Short task label" },
         result: { type: "string", maxLength: 160, description: "Verified outcome to retain after completion" },
+        workItem: { type: "string", maxLength: 160, description: "Current PR/issue reference, e.g. PR #42, Issue #17 or PR owner/repo#42. Include both if working on both." },
       }, additionalProperties: false } as ToolDefinition["parameters"],
       execute: async (_id, params, _signal, _update, ctx) => {
         if (!this.ctx || ctx.mode !== "tui" || !ctx.hasUI || ctx.sessionManager.getSessionId() !== this.ctx.sessionManager.getSessionId()) {
           return { content: [{ type: "text", text: "No active Herdr pane owned by this session." }], details: {}, isError: true };
         }
         const value = object(params);
-        if (!value || !["task", "result"].some(key => typeof value[key] === "string")) {
-          return { content: [{ type: "text", text: "Provide task or result." }], details: {}, isError: true };
+        if (!value || !["task", "result", "workItem"].some(key => typeof value[key] === "string")) {
+          return { content: [{ type: "text", text: "Provide task, result or workItem." }], details: {}, isError: true };
         }
         if (typeof value.task === "string") this.task = displayText(value.task);
         if (typeof value.result === "string") this.result = displayText(value.result);
-        pi.appendEntry(ENTRY, { task: this.task, result: this.result });
+        if (typeof value.workItem === "string") this.workItem = displayText(value.workItem);
+        pi.appendEntry(ENTRY, { task: this.task, result: this.result, workItem: this.workItem });
         this.notify(ctx);
         return { content: [{ type: "text", text: "Herdr summary updated." }], details: {} };
       },
@@ -93,12 +96,13 @@ export class Overview {
     this.snapshots.clear();
     if (counts) this.snapshots.set(id, counts);
     this.started = this.finished = this.waiting = undefined;
-    this.task = this.result = this.branch = undefined;
+    this.task = this.result = this.workItem = this.branch = undefined;
     this.worktree = displayText(basename(ctx.cwd));
     const entry = ctx.sessionManager.getBranch?.().findLast(entry => entry.type === "custom" && entry.customType === ENTRY);
     const saved = entry?.type === "custom" ? object(entry.data) : undefined;
     if (typeof saved?.task === "string") this.task = displayText(saved.task);
     if (typeof saved?.result === "string") this.result = displayText(saved.result);
+    if (typeof saved?.workItem === "string") this.workItem = displayText(saved.workItem);
     this.lastGit = 0;
     this.gitInFlight = false;
     this.refreshGit();
@@ -128,7 +132,7 @@ export class Overview {
     if (this.started === undefined || this.finished !== undefined) {
       this.started = now;
       this.finished = undefined;
-      this.task = this.result = undefined;
+      this.task = this.result = this.workItem = undefined;
       this.pi.appendEntry(ENTRY, {});
     }
   }
@@ -136,7 +140,7 @@ export class Overview {
     if (this.started !== undefined && this.finished === undefined) this.finished = now;
     if (aborted) {
       this.result = "Stopped";
-      this.pi.appendEntry(ENTRY, { task: this.task, result: this.result });
+      this.pi.appendEntry(ENTRY, { task: this.task, result: this.result, workItem: this.workItem });
     }
   }
   metadata(blocked: boolean, now = Date.now()): Partial<Metadata> {
@@ -145,7 +149,7 @@ export class Overview {
     const counts = this.ctx ? this.snapshots.get(this.ctx.sessionManager.getSessionId()) : undefined;
     const labels = taskLabels(counts);
     return {
-      ...labels, task: this.task, result: this.result, branch: this.branch, worktree: this.worktree,
+      ...labels, task: this.task, result: this.result, workItem: this.workItem, branch: this.branch, worktree: this.worktree,
       attention: blocked ? "Needs your input" : labels.attention,
       elapsed: this.waiting !== undefined ? `Waiting ${elapsed(this.waiting, now)}` : elapsed(this.started, this.finished ?? now),
     };
