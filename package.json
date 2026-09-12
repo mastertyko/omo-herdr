@@ -1,6 +1,6 @@
 {
   "name": "omo-herdr",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "description": "Report OMO Native lifecycle and session identity to Herdr",
   "repository": {
     "type": "git",
