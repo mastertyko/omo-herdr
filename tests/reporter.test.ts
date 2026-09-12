@@ -95,3 +95,57 @@ test("failed release has a bounded retry and shutdown is idempotent", async () =
   await delay(20);
   assert.equal(calls, 2);
 });
+
+test("metadata failures retry without repeating lifecycle; newer state still takes priority", async () => {
+  const calls: string[][] = [];
+  let failMetadata = true;
+  const reporter = new Reporter("w1:p1", async args => {
+    calls.push([...args]);
+    return args[1] !== "report-metadata" || !failMetadata;
+  }, 10);
+  try {
+    reporter.report({ state: "working", metadata: { model: "first" } });
+    await eventually(() => calls.filter(args => args[1] === "report-metadata").length >= 2);
+    assert.equal(calls.filter(args => args[1] === "report-agent").length, 1);
+    assert.equal(reporter.diagnostics().state.succeeded, true);
+    assert.equal(reporter.diagnostics().metadata.succeeded, false);
+    failMetadata = false;
+    reporter.report({ state: "blocked", metadata: { model: "second" } });
+    await eventually(() => reporter.diagnostics().metadata.succeeded === true);
+    const states = calls.filter(args => args[1] === "report-agent");
+    assert.deepEqual(states.map(args => field(args, "--state")), ["working", "blocked"]);
+    assert.equal(field(calls.at(-1)!, "--token"), "omo_model=second");
+  } finally { await reporter.close(); }
+  assert.equal(calls.at(-1)![1], "release-agent");
+  assert.ok(calls.at(-2)!.includes("--clear-title"));
+});
+
+test("metadata refreshes before TTL without repeating state and stops after shutdown", async () => {
+  const calls: string[][] = [];
+  const reporter = new Reporter("w1:p1", async args => { calls.push([...args]); return true; }, 10, 25);
+  reporter.report({ state: "idle", metadata: { title: "test" } });
+  await eventually(() => calls.filter(args => args.includes("--title")).length >= 2);
+  assert.equal(calls.filter(args => args[1] === "report-agent").length, 1);
+  await reporter.close();
+  const count = calls.length;
+  await delay(80);
+  assert.equal(calls.length, count);
+  assert.equal(calls.at(-1)![1], "release-agent");
+});
+
+test("shutdown waits for metadata in flight then clears it before releasing the source", async () => {
+  const calls: string[][] = [];
+  let finish!: (ok: boolean) => void;
+  const reporter = new Reporter("w1:p1", async args => {
+    calls.push([...args]);
+    if (args.includes("--title")) return new Promise<boolean>(resolve => { finish = resolve; });
+    return true;
+  });
+  reporter.report({ state: "idle", metadata: { title: "in flight" } });
+  await eventually(() => !!finish);
+  const closing = reporter.close();
+  assert.equal(calls.length, 2);
+  finish(true);
+  await closing;
+  assert.deepEqual(calls.map(args => args[1]), ["report-agent", "report-metadata", "report-metadata", "release-agent"]);
+});

@@ -11,7 +11,8 @@ and expected impact.
 
 - The extension reports only from a Herdr TUI session using the inherited executable,
   socket and pane identifiers. It never executes interpolated shell commands.
-- Reports contain status and native session references. Prompt text, tool arguments,
+- Reports contain status, session ID/path, explicit session name, model identifier, context
+  usage and tool names. Metadata is optional (`OMO_HERDR_METADATA=0`). Prompt text, tool arguments,
   model output and credentials must not be included.
 - Child processes must not replace their parent pane's status. Duplicate extension
   instances must not claim the same process ownership.

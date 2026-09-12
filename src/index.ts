@@ -1,78 +1,137 @@
 import type { ExtensionAPI, ExtensionContext, UIPromptKind } from "@code-yeongyu/senpi";
 import { isAbsolute } from "node:path";
+import { doctorReport } from "./doctor.ts";
 import { claimPane, readEnvironment } from "./environment.ts";
+import { displayText, metadataFor } from "./metadata.ts";
 import { cliTransport, Reporter } from "./reporter.ts";
 
 export default function omoHerdr(pi: ExtensionAPI): void {
   const environment = readEnvironment(process.env);
-  if (!environment) return;
-
+  const metadataEnabled = process.env.OMO_HERDR_METADATA !== "0";
   let reporter: Reporter | undefined;
   let releaseClaim: (() => void) | undefined;
   let active = false;
+  let compacting = false;
+  const tools = new Map<string, string>();
   let prompts: Array<{ kind: UIPromptKind; title?: string }> = [];
+
+  pi.registerCommand("herdr", {
+    description: "Inspect the OmO–Herdr integration and diagnose connectivity",
+    argumentHint: "[status|doctor]",
+    handler: async (args, ctx) => {
+      const action = args.trim() || "status";
+      if (action !== "doctor" && action !== "status") {
+        ctx.ui.notify("Usage: /herdr [status|doctor]", "warning");
+        return;
+      }
+      ctx.ui.notify(await doctorReport(ctx, environment, reporter, metadataEnabled, action === "doctor"), "info");
+    },
+  });
+  if (!environment) return;
+
+  function reset(): void {
+    active = false;
+    compacting = false;
+    tools.clear();
+    prompts = [];
+  }
 
   function publish(ctx: ExtensionContext): void {
     if (!reporter) return;
     const prompt = prompts.at(-1);
     const file = ctx.sessionManager.getSessionFile();
+    const running = Array.from(tools.values());
+    const activity = compacting ? "Compacting context" : running.length
+      ? `Running ${running.at(-1)}${running.length > 1 ? ` (+${running.length - 1})` : ""}` : undefined;
     reporter.report({
-      state: prompt ? "blocked" : active ? "working" : "idle",
-      // Avoid copying arbitrary prompt text or secrets into Herdr's status/history.
+      state: prompt ? "blocked" : active || compacting ? "working" : "idle",
       message: prompt ? "Waiting for user input" : undefined,
       sessionId: ctx.sessionManager.getSessionId(),
       sessionPath: file && isAbsolute(file) ? file : undefined,
+      metadata: metadataEnabled ? metadataFor(ctx, activity) : undefined,
     });
   }
 
   pi.on("session_start", (_event, ctx) => {
-    if (ctx.mode !== "tui" || !ctx.hasUI || reporter) return;
-    releaseClaim = claimPane();
-    if (!releaseClaim) return;
-    reporter = new Reporter(environment.pane, cliTransport(environment));
-    prompts = [];
-    active = !ctx.isIdle() || ctx.hasPendingMessages() || (ctx.isCompacting?.() ?? false);
+    if (ctx.mode !== "tui" || !ctx.hasUI) return;
+    if (!reporter) {
+      releaseClaim = claimPane();
+      if (!releaseClaim) return;
+      reporter = new Reporter(environment.pane, cliTransport(environment));
+    }
+    // New/resumed/forked sessions can reuse the same extension instance.
+    reset();
+    active = !ctx.isIdle() || ctx.hasPendingMessages();
+    compacting = ctx.isCompacting?.() ?? false;
     publish(ctx);
   });
 
-  pi.on("agent_start", (_event, ctx) => {
-    active = true;
-    publish(ctx);
-  });
-
+  pi.on("agent_start", (_event, ctx) => { if (!reporter) return; active = true; publish(ctx); });
   // agent_end can precede retries, compaction and queued continuations.
   pi.on("agent_settled", (_event, ctx) => {
+    if (!reporter) return;
     active = false;
+    tools.clear();
     publish(ctx);
   });
-
   pi.on("session_abort", (_event, ctx) => {
+    if (!reporter) return;
     active = false;
+    compacting = false;
+    tools.clear();
     publish(ctx);
   });
-
   pi.on("ui_prompt_start", (event, ctx) => {
+    if (!reporter) return;
     prompts.push({ kind: event.kind, title: event.title });
     publish(ctx);
   });
-
   pi.on("ui_prompt_end", (event, ctx) => {
+    if (!reporter) return;
     const index = prompts.findLastIndex((prompt) => prompt.kind === event.kind && prompt.title === event.title);
     if (index < 0) return;
     prompts.splice(index, 1);
     publish(ctx);
   });
-
+  pi.on("tool_execution_start", (event, ctx) => {
+    if (!reporter) return;
+    tools.set(event.toolCallId, displayText(event.toolName, 64) ?? "tool");
+    active = true;
+    publish(ctx);
+  });
+  pi.on("tool_execution_end", (event, ctx) => {
+    if (!reporter) return;
+    tools.delete(event.toolCallId);
+    publish(ctx);
+  });
+  pi.on("session_before_compact", (_event, ctx) => {
+    if (!reporter) return;
+    compacting = true;
+    publish(ctx);
+  });
+  pi.on("session_compact", (event, ctx) => {
+    if (!reporter) return;
+    compacting = false;
+    active ||= event.willRetry;
+    publish(ctx);
+  });
+  pi.on("session_compact_failed", (event, ctx) => {
+    if (!reporter) return;
+    compacting = false;
+    // Failure is not evidence of a scheduled retry; agent_settled/abort owns settling an active run.
+    if (event.aborted) active = false;
+    publish(ctx);
+  });
   pi.on("session_info_changed", (_event, ctx) => publish(ctx));
-
+  pi.on("model_select", (_event, ctx) => publish(ctx));
+  pi.on("message_end", (_event, ctx) => publish(ctx));
   pi.on("session_shutdown", async () => {
     const closing = reporter;
     reporter = undefined;
     try { await closing?.close(); } finally {
       releaseClaim?.();
       releaseClaim = undefined;
-      prompts = [];
-      active = false;
+      reset();
     }
   });
 }

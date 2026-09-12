@@ -17,13 +17,13 @@ test("extension reports lifecycle, ignores agent_end, isolates non-TUI sessions 
   const original = { ...process.env };
   Object.assign(process.env, {
     HERDR_ENV: "1", HERDR_BIN_PATH: bin, HERDR_SOCKET_PATH: join(directory, "socket"),
-    HERDR_PANE_ID: "w1:p1", OMO_HERDR_TEST_LOG: log,
+    HERDR_PANE_ID: "w1:p1", OMO_HERDR_TEST_LOG: log, OMO_HERDR_METADATA: "0",
   });
   delete process.env.OMO_HERDR_OWNER_PID;
   let handlers = new Map<string, Handler>();
   function load() {
     handlers = new Map();
-    omoHerdr({ on: (name: string, handler: Handler) => handlers.set(name, handler) } as unknown as ExtensionAPI);
+    omoHerdr({ registerCommand: () => {}, on: (name: string, handler: Handler) => handlers.set(name, handler) } as unknown as ExtensionAPI);
   }
   let sessionId = "first";
   const ctx = {

@@ -19,6 +19,8 @@
     "test": "node --test tests/*.test.ts",
     "check": "bun run typecheck && bun run test",
     "qa:host": "node scripts/qa-host.ts",
+    "qa:live": "node scripts/qa-live.ts",
+    "qa:download-herdr": "node scripts/download-herdr.ts",
     "pack:dry": "npm pack --dry-run",
     "prepublishOnly": "bun run check && npm pack --dry-run"
   },
