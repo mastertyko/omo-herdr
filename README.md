@@ -267,3 +267,58 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the release workflow and bootstrap re
 - [Herdr session resume policy](https://github.com/herdrdev/herdr/blob/master/src/agent_resume.rs)
 
 The implementation uses Senpi's current events rather than copying OMP's different lifecycle API.
+
+## Graphical agent overview
+
+Run `/herdr web` inside an OmO TUI session in official Herdr to open the local
+web overview. It ships with this package; no separate frontend installation,
+Herdr fork, or replacement of `omo-herdr-dag` is needed. The browser opens only
+when you run the command. `Overview` is the initial view.
+
+The English interface has an agent tree, a dependency graph, an inspector,
+activity history, workflow selection, zoom and focus controls. Click a task or
+agent to inspect it, collapse its sub-agents, or inspect reported dependencies.
+`All tasks` also shows tasks outside the selected DAG without inventing edges.
+Narrow desktop panels use a dismissible inspector so the graph stays reachable.
+For larger sessions, search reveals matching agents together with their ancestors,
+even inside collapsed branches. Clearing the search restores the collapsed state.
+Changing workflow resets the inspector to the main agent.
+
+Subtle light dots follow dependencies feeding working tasks. A brief outgoing pulse
+marks an observed completion; opening a view does not replay old completions.
+Animation stops when disconnected and respects reduced-motion preferences. The
+dots indicate task activity, not agent-to-agent message traffic.
+
+Data comes from OmO's version-sensitive `omo.task.updated` and
+`omo.dag.updated` snapshots over Senpi's public event bus. Agent ownership uses
+explicit child-session links; DAG edges describe task dependencies only. Nested
+agents are visible only if their snapshots reach this host's event bus. This
+integration does not read private task stores or transcripts. Missing data stays
+missing; it is never replaced with a demo. Status `Done` is not proof of passing
+tests. Prompts, final responses, assistant text and tool arguments are excluded.
+Only short names, summary labels, model names and current tool names are exposed.
+
+Each active session gets a read-only loopback server and a random access link.
+The API requires a session token, rejects foreign origins/hosts, and serves no
+filesystem paths outside the built frontend bundle. Everything is memory-only;
+closing/replacing the session invalidates its link and clears its data. The UI
+polls every 1.5 seconds, marks a lost connection and retries. Do not share live
+session links. Run `/herdr web` again after reload or session replacement.
+
+### Developing the overview
+
+```sh
+bun install --frozen-lockfile
+npm --prefix web ci
+bun run check
+HERDR_BIN_PATH="$(command -v herdr)" bun run qa:web
+npm run dev -- --port 4173
+```
+
+Open `http://127.0.0.1:4173/?demo=1` for the explicitly marked design fixture.
+The development server binds to loopback. Normal sessions use the bundled
+production build, without Vite or an npm install at runtime.
+`npm pack` builds and includes `web/dist/client`; CI and releases install the
+locked web dependencies and build it before packaging. `qa:web` verifies the
+actual Senpi loader, command and RPC bus using controlled fixture events and an
+isolated Herdr socket. A real model-driven OmO run is a separate runtime check.

@@ -30,7 +30,9 @@ jobs:
           package-manager-cache: false
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: |
+          bun install --frozen-lockfile
+          npm --prefix web ci --no-audit --no-fund
 
       - name: Run checks
         run: bun run check
@@ -44,6 +46,7 @@ jobs:
         run: |
           bun run qa:host
           bun run qa:live
+          bun run qa:web
 
       - name: Verify package contents
         run: npm pack --dry-run
