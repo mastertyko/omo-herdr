@@ -1,5 +1,6 @@
 import type { ContextUsage, ExtensionContext } from "@code-yeongyu/senpi";
 import { stripVTControlCharacters } from "node:util";
+import { compactText } from "./presentation.ts";
 
 export const METADATA_SOURCE = "custom:omo:metadata";
 export const METADATA_REFRESH_MS = 15_000;
@@ -7,13 +8,17 @@ export const METADATA_TTL_MS = 45_000;
 const TOKEN_FIELDS = {
   omo_model: "model", omo_context: "context", omo_activity: "activity",
   omo_task: "task", omo_tasks: "tasks", omo_attention: "attention", omo_result: "result",
-  omo_work_item: "workItem",
   omo_branch: "branch", omo_worktree: "worktree", omo_elapsed: "elapsed",
   omo_context_meter: "contextMeter", omo_context_percent: "contextPercent",
+  omo_work_item: "workItem", omo_project: "project", omo_summary: "summary", omo_elapsed_compact: "elapsedCompact",
 } as const;
 export const METADATA_TOKENS = Object.keys(TOKEN_FIELDS) as Array<keyof typeof TOKEN_FIELDS>;
 
 export interface Metadata {
+  workItem?: string;
+  project?: string;
+  summary?: string;
+  elapsedCompact?: string;
   title?: string;
   model?: string;
   context?: string;
@@ -22,7 +27,6 @@ export interface Metadata {
   tasks?: string;
   attention?: string;
   result?: string;
-  workItem?: string;
   branch?: string;
   worktree?: string;
   elapsed?: string;
@@ -69,10 +73,11 @@ export function metadataArgs(metadata: Metadata | undefined, seq: number, pane: 
     "--ttl-ms", String(METADATA_TTL_MS)];
   if (metadata?.title) args.push("--title", metadata.title);
   else args.push("--clear-title");
-  if (metadata?.activity) args.push("--state-label", `working=${metadata.activity}`);
-  else args.push("--clear-state-labels");
+  // Tool activity belongs in presentation tokens, not the native lifecycle label.
+  args.push("--clear-state-labels");
   METADATA_TOKENS.forEach(key => {
-    const value = displayText(metadata?.[TOKEN_FIELDS[key]]);
+    const compact = key === "omo_work_item" || key === "omo_project" || key === "omo_summary" || key === "omo_elapsed_compact";
+    const value = (compact ? compactText : displayText)(metadata?.[TOKEN_FIELDS[key]]);
     if (value) args.push("--token", `${key}=${value}`);
     else args.push("--clear-token", key);
   });

@@ -50,7 +50,7 @@ export default function omoHerdr(pi: ExtensionAPI): void {
       message: prompt ? "Waiting for user input" : undefined,
       sessionId: ctx.sessionManager.getSessionId(),
       sessionPath: file && isAbsolute(file) ? file : undefined,
-      metadata: metadataEnabled ? { ...metadataFor(ctx, activity), ...overview?.metadata(!!prompt) } : undefined,
+      metadata: metadataEnabled ? { ...metadataFor(ctx, activity), ...overview?.metadata(!!prompt, Date.now(), activity) } : undefined,
     });
   }
 
