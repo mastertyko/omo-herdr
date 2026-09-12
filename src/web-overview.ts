@@ -45,6 +45,9 @@ export class WebOverview {
       project: displayText(basename(ctx.cwd ?? process.cwd())) ?? "Project",
       state: "idle",
     });
+    // Ask an opt-in research producer to announce current capabilities when
+    // extension load order or reload means its initial announcement was missed.
+    this.pi.events?.emit?.("omo.research.request", { parent_session_id: sessionId });
   }
   update(ctx: ExtensionContext, state: State, activity?: string): void {
     if (this.sessionId !== ctx.sessionManager.getSessionId()) return;

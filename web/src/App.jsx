@@ -37,35 +37,35 @@ import {
   X,
   WifiHigh,
   WifiSlash,
+  BookOpen,
 } from "@phosphor-icons/react";
 import "@xyflow/react/dist/style.css";
 import "@fontsource-variable/inter";
 import { demo } from "./demo.js";
+import { researchDemo } from "./research-demo.js";
+import { statusWords as words, statusDescription, summarizeAgents } from "./agent-summary.js";
+import {
+  ResearchGraph,
+  ResearchInspector,
+  ResearchSummary,
+  findResearchItem,
+} from "./Research.jsx";
 
-const words = {
-  running: "Working",
-  pending: "Waiting",
-  blocked: "Blocked",
-  completed: "Done",
-  failed: "Failed",
-  cancelled: "Cancelled",
-  paused: "Paused",
-  idle: "Ready",
-  unknown: "Unknown",
-};
 function RoleIcon({ name = "", ...props }) {
   const n = name.toLowerCase();
-  const Icon = /test|qa/.test(n)
-    ? Flask
-    : /front|design|ui/.test(n)
-      ? Monitor
-      : /back|api/.test(n)
-        ? HardDrives
-        : /explor|kart/.test(n)
-          ? Compass
-          : /integra/.test(n)
-            ? PuzzlePiece
-            : TreeStructure;
+  const Icon = /librarian|research/.test(n)
+    ? BookOpen
+    : /test|qa/.test(n)
+      ? Flask
+      : /front|design|ui/.test(n)
+        ? Monitor
+        : /back|api/.test(n)
+          ? HardDrives
+          : /explor|kart/.test(n)
+            ? Compass
+            : /integra/.test(n)
+              ? PuzzlePiece
+              : TreeStructure;
   return <Icon weight="regular" {...props} />;
 }
 function Badge({ state }) {
@@ -108,11 +108,19 @@ function time(at) {
   return new Date(at).toLocaleTimeString("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
   });
+}
+function hasResearch(research, task) {
+  return !!task && (
+    /librarian/i.test(task.agent) ||
+    research?.taskIds?.includes(task.id) ||
+    research?.records?.some((record) => record.taskId === task.id)
+  );
 }
 function TaskNode({ data, selected }) {
   return (
-    <div className={`task-card ${selected ? "chosen" : ""}`}>
+    <div className={`task-card ${data.compact ? "compact-card" : ""} ${selected ? "chosen" : ""}`}>
       <Handle type="target" position={Position.Left} />
       <Handle type="target" id="top" position={Position.Top} />
       <div className="card-heading">
@@ -123,7 +131,22 @@ function TaskNode({ data, selected }) {
         </div>
       </div>
       <Badge state={data.node.state} />
-      <small>{elapsed(data.task ?? data.node, data.preview)}</small>
+      {data.research ? (
+        <button
+          className="task-research-button nodrag nopan"
+          aria-label={`Open research trail for ${data.task.agent}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            data.onResearch(data.task.id);
+          }}
+        >
+          <BookOpen size={15} />
+          Research trail
+          <CaretRight size={12} />
+        </button>
+      ) : (
+        <small>{elapsed(data.task ?? data.node, data.preview)}</small>
+      )}
       <Handle type="source" position={Position.Right} />
     </div>
   );
@@ -159,7 +182,7 @@ function FlowEdge(props) {
           </circle>
         </g>
       )}
-      {connected && pulse && (
+      {connected && pulse > 0 && (
         <circle key={pulse} className="edge-flow edge-complete" r="4" fill="#9cf3c6" aria-hidden="true">
           <animateMotion path={path} dur="1.6s" fill="freeze" />
           <animate attributeName="opacity" values="0;1;1;0" dur="1.6s" fill="freeze" />
@@ -169,9 +192,10 @@ function FlowEdge(props) {
   );
 }
 const edgeTypes = { flow: FlowEdge };
-function Graph({ snapshot, run, selected, onSelect, preview, connected }) {
+function Graph({ snapshot, run, selected, onSelect, onResearch, preview, connected }) {
   const flow = useReactFlow();
   const canvasRef = useRef(null);
+  const [canvasWidth, setCanvasWidth] = useState(800);
   const source = useMemo(
     () =>
       run ?? {
@@ -211,15 +235,20 @@ function Graph({ snapshot, run, selected, onSelect, preview, connected }) {
     source.nodes.map((n) => n.id),
     source.edges,
   ]);
+  const compact = source.nodes.length > 0 && source.nodes.length <= 3;
+  const cardWidth = compact ? 248 : 164;
+  const cardHeight = compact ? 188 : 132;
+  const columns = compact ? Math.max(1, Math.min(source.nodes.length, Math.floor((canvasWidth / 0.8 - 48 + 36) / (cardWidth + 36)))) : 3;
+  const rows = Math.ceil(source.nodes.length / columns);
   const positions = useMemo(() => {
     if (!source.edges.length)
       return Object.fromEntries(
         source.nodes.map((n, i) => [
           n.id,
-          { x: (i % 3) * 212, y: Math.floor(i / 3) * 178 },
+          { x: (i % columns) * (cardWidth + (compact ? 36 : 48)), y: Math.floor(i / columns) * (cardHeight + (compact ? 32 : 46)) },
         ]),
       );
-    if (preview)
+    if (!compact && preview && source.nodes.every((n) => ["explore", "api", "ui", "test", "integration"].includes(n.id)))
       return {
         explore: { x: 0, y: 115 },
         api: { x: 202, y: 12 },
@@ -236,16 +265,16 @@ function Graph({ snapshot, run, selected, onSelect, preview, connected }) {
         marginy: 20,
       })
       .setDefaultEdgeLabel(() => ({}));
-    source.nodes.forEach((n) => g.setNode(n.id, { width: 164, height: 128 }));
+    source.nodes.forEach((n) => g.setNode(n.id, { width: cardWidth, height: cardHeight }));
     source.edges.forEach((e) => g.setEdge(e.from, e.to));
     dagre.layout(g);
     return Object.fromEntries(
       source.nodes.map((n) => [
         n.id,
-        { x: g.node(n.id).x - 82, y: g.node(n.id).y - 64 },
+        { x: g.node(n.id).x - cardWidth / 2, y: g.node(n.id).y - cardHeight / 2 },
       ]),
     );
-  }, [structure, preview]);
+  }, [structure, preview, compact, cardWidth, cardHeight, columns]);
   const nodes = source.nodes.map((n) => ({
     id: n.id,
     type: "task",
@@ -254,6 +283,9 @@ function Graph({ snapshot, run, selected, onSelect, preview, connected }) {
       node: n,
       task: snapshot.tasks.find((t) => t.id === n.taskId),
       preview,
+      compact,
+      research: snapshot.research?.records?.some((record) => record.taskId === n.taskId),
+      onResearch,
     },
     selected: selected === (n.taskId ?? `node:${n.id}`),
     ariaLabel: `${n.label}, ${words[n.state]}`,
@@ -263,7 +295,7 @@ function Graph({ snapshot, run, selected, onSelect, preview, connected }) {
     source: e.from,
     target: e.to,
     targetHandle:
-      positions[e.from].x + 164 > positions[e.to].x &&
+      positions[e.from].x + cardWidth > positions[e.to].x &&
       positions[e.from].y < positions[e.to].y
         ? "top"
         : undefined,
@@ -291,9 +323,10 @@ function Graph({ snapshot, run, selected, onSelect, preview, connected }) {
   useEffect(() => {
     let timer;
     const fit = () => {
+      if (canvasRef.current) setCanvasWidth(canvasRef.current.clientWidth);
       clearTimeout(timer);
       timer = setTimeout(
-        () => flow.fitView({ padding: 0.05, duration: 0 }),
+        () => flow.fitView({ padding: compact ? 0.12 : 0.05, maxZoom: compact ? 1 : 1.8, duration: 0 }),
         120,
       );
     };
@@ -304,17 +337,18 @@ function Graph({ snapshot, run, selected, onSelect, preview, connected }) {
       observer.disconnect();
       clearTimeout(timer);
     };
-  }, [structure, flow]);
+  }, [structure, flow, compact, columns]);
   const focus = () => {
     const active = nodes.filter((n) => n.data.node.state === "running");
     flow.fitView({
       nodes: active.length ? active : nodes,
       padding: 0.2,
+      maxZoom: compact ? 1 : 1.8,
       duration: 300,
     });
   };
   return (
-    <section className="graph-panel panel">
+    <section className={`graph-panel panel ${compact ? "compact-graph" : ""}`} style={compact ? { "--compact-height": `${Math.min(580, 110 + (source.edges.length ? cardHeight + 96 : rows * (cardHeight + 32) + 40))}px` } : undefined}>
       <div className="panel-heading">
         <h2>{run ? "Tasks & dependencies" : "Tasks"}</h2>
         <div className="graph-tools">
@@ -339,7 +373,7 @@ function Graph({ snapshot, run, selected, onSelect, preview, connected }) {
           <button
             className="icon-button fit"
             aria-label="Fit graph"
-            onClick={() => flow.fitView({ padding: 0.1, duration: 300 })}
+            onClick={() => flow.fitView({ padding: 0.1, maxZoom: compact ? 1 : 1.8, duration: 300 })}
           >
             <ArrowsOut size={19} />
           </button>
@@ -358,6 +392,7 @@ function Graph({ snapshot, run, selected, onSelect, preview, connected }) {
             nodesDraggable={false}
             nodesConnectable={false}
             fitView
+            fitViewOptions={{ padding: compact ? 0.12 : 0.05, maxZoom: compact ? 1 : 1.8 }}
             minZoom={0.15}
             maxZoom={1.8}
             proOptions={{ hideAttribution: false }}
@@ -394,12 +429,14 @@ function ActivityList({ items, tasks, onSelect, limit }) {
           onClick={() => a.taskId && onSelect(a.taskId)}
           disabled={!a.taskId}
         >
-          <time>{time(a.at)}</time>
-          <RoleIcon
-            name={tasks.find((t) => t.id === a.taskId)?.agent}
-            size={22}
-          />
-          <span>{a.label}</span>
+          <time dateTime={a.at} title={`Observed ${new Date(a.at).toLocaleString("en-GB")}${a.sourceAt ? ` · Source time ${new Date(a.sourceAt).toLocaleString("en-GB")}` : ""}`}>{time(a.at)}</time>
+          <span className={`activity-symbol ${a.state ?? "unknown"}`} title={a.state ? `${words[a.state] ?? words.unknown} when observed` : undefined}>
+            <RoleIcon name={a.agent ?? tasks.find((t) => t.id === a.taskId)?.agent} size={21} />
+          </span>
+          <span className="activity-copy">
+            <strong>{a.action ?? a.label}</strong>
+            {a.action && <small>{a.agent && a.taskLabel ? `${a.agent} · ${a.taskLabel}` : a.label}</small>}
+          </span>
         </button>
       ))}
     </div>
@@ -407,8 +444,13 @@ function ActivityList({ items, tasks, onSelect, limit }) {
     <p className="muted empty-copy">No activity reported yet.</p>
   );
 }
-function Overview({ snapshot, preview, connection }) {
-  const [selected, setSelected] = useState(preview ? "st_backend" : "root");
+function Overview({ snapshot, preview, connection, initialTrail = false }) {
+  const initialTask = preview
+    ? (snapshot.tasks.find((task) => /librarian/i.test(task.agent))?.id ?? "st_backend")
+    : "root";
+  const [selected, setSelected] = useState(initialTask);
+  const [researchTaskId, setResearchTaskId] = useState(initialTrail ? initialTask : null);
+  const [selectedResearchId, setSelectedResearchId] = useState(null);
   const [collapsed, setCollapsed] = useState(new Set());
   const [tab, setTab] = useState("Details");
   const [view, setView] = useState("Overview");
@@ -421,6 +463,10 @@ function Overview({ snapshot, preview, connection }) {
       ? undefined
       : (runs.find((r) => r.id === runId) ?? runs[0]);
   const task = snapshot.tasks.find((t) => t.id === selected);
+  const researchTask = snapshot.tasks.find((t) => t.id === researchTaskId);
+  const selectedResearchItem = researchTask && selectedResearchId
+    ? findResearchItem(snapshot.research, researchTaskId, selectedResearchId)
+    : null;
   const node = selected.startsWith("node:")
     ? run?.nodes.find((n) => `node:${n.id}` === selected)
     : !task
@@ -450,10 +496,33 @@ function Overview({ snapshot, preview, connection }) {
     ? snapshot.activity
     : snapshot.activity.filter((a) => a.taskId === task?.id && task);
   const choose = useCallback((id) => {
+    setResearchTaskId(null);
+    setSelectedResearchId(null);
     setSelected(id);
     setTab("Details");
     setInspectorOpen(true);
   }, []);
+  const openResearch = useCallback((id) => {
+    setSelected(id);
+    setResearchTaskId(id);
+    setSelectedResearchId(null);
+    setTab("Details");
+    setView("Overview");
+    setInspectorOpen(false);
+  }, []);
+  const selectResearch = useCallback((id) => {
+    setSelectedResearchId(id);
+    setTab("Details");
+    setInspectorOpen(true);
+  }, []);
+  const backToTasks = useCallback(() => {
+    setResearchTaskId(null);
+    setSelectedResearchId(null);
+  }, []);
+  const changeView = (nextView) => {
+    setView(nextView);
+    if (nextView !== "Overview") backToTasks();
+  };
   const toggle = (id) =>
     setCollapsed((old) => {
       const next = new Set(old);
@@ -463,10 +532,23 @@ function Overview({ snapshot, preview, connection }) {
   useEffect(() => {
     if (selected !== "root" && !task && !node) setSelected("root");
   }, [selected, task, node]);
-  const counts = snapshot.tasks.reduce(
-    (c, t) => ((c[t.state] = (c[t.state] ?? 0) + 1), c),
-    {},
-  );
+  useEffect(() => {
+    if (researchTaskId && !researchTask) {
+      setResearchTaskId(null);
+      setSelectedResearchId(null);
+    } else if (selectedResearchId && !selectedResearchItem) {
+      setSelectedResearchId(null);
+    }
+  }, [researchTask, researchTaskId, selectedResearchId, selectedResearchItem]);
+  const activeRunId = run?.id ?? "standalone";
+  const previousRunId = useRef(activeRunId);
+  useEffect(() => {
+    if (previousRunId.current !== activeRunId) backToTasks();
+    previousRunId.current = activeRunId;
+  }, [activeRunId, backToTasks]);
+  const summary = summarizeAgents(snapshot.session, snapshot.tasks);
+  const graphSize = run?.nodes.length ?? snapshot.tasks.length;
+  const smallGraph = graphSize > 0 && graphSize <= 3;
   const search = query.trim().toLowerCase();
   const visibleTasks = useMemo(() => {
     if (!search) return null;
@@ -515,10 +597,20 @@ function Overview({ snapshot, preview, connection }) {
                   <RoleIcon name={t.agent} size={30} />
                   <span className="agent-name">
                     <strong>{t.agent}</strong>
-                    <small>{t.label}</small>
+                    <small title={t.label}>{t.label}</small>
                   </span>
                   <Badge state={t.state} />
                 </button>
+              </div>
+            )}
+            {!hidden && hasResearch(snapshot.research, t) && (
+              <div className="agent-research-summary" style={{ "--depth": depth + 1 }}>
+                <ResearchSummary
+                  research={snapshot.research}
+                  task={t}
+                  onOpen={() => openResearch(t.id)}
+                  compact
+                />
               </div>
             )}
             {!hidden && expanded && rows(t.id, depth + 1, next)}
@@ -542,7 +634,7 @@ function Overview({ snapshot, preview, connection }) {
             <button
               className={view === v ? "active" : ""}
               key={v}
-              onClick={() => setView(v)}
+              onClick={() => changeView(v)}
             >
               {v}
             </button>
@@ -579,11 +671,11 @@ function Overview({ snapshot, preview, connection }) {
           automatically.
         </div>
       )}
-      <div className="workspace">
+      <div className={`workspace ${researchTask ? "research-workspace" : smallGraph ? "small-workspace" : ""}`}>
         <aside className="agents panel">
           <div className="panel-heading">
             <h2>Agents</h2>
-            <span className="subtle-count">{snapshot.tasks.length + 1}</span>
+            <span className="subtle-count" title="Main agent and all reported task agents">{summary.total}</span>
           </div>
           {(snapshot.tasks.length > 8 || query) && (
             <input
@@ -620,15 +712,18 @@ function Overview({ snapshot, preview, connection }) {
             {(search || !collapsed.has("root")) && rows(undefined)}
             {visibleTasks?.size === 0 && <p className="empty-copy" role="status">No matching agents or tasks.</p>}
           </div>
-          <div className="tree-summary">
-            <span>{counts.running ?? 0} working</span>
-            <span>{(counts.pending ?? 0) + (counts.blocked ?? 0)} waiting</span>
-            <span>{counts.completed ?? 0} done</span>
+          <div className="tree-summary" aria-label="Status of all agents in this session">
+            <div className="summary-heading"><strong>All agents</strong><span>{summary.total} total</span></div>
+            <div className="summary-counts">
+              {summary.items.map(({ state, count, label }) => (
+                <span className={`summary-count ${state}`} key={state}><i aria-hidden="true" /><b>{count}</b> {label}</span>
+              ))}
+            </div>
           </div>
         </aside>
         <main className="main-content">
           <div className="run-heading">
-            <h1>{snapshot.session.title}</h1>
+            <h1>{researchTask ? "Research trail" : snapshot.session.title}</h1>
             {preview && <span className="pill">DEMO DATA</span>}
             {!preview && runs.length > 0 && (
               <select
@@ -636,6 +731,7 @@ function Overview({ snapshot, preview, connection }) {
                 value={run?.id ?? "standalone"}
                 onChange={(e) => {
                   setRunId(e.target.value);
+                  backToTasks();
                   setSelected("root");
                   setTab("Details");
                   setInspectorOpen(false);
@@ -658,34 +754,48 @@ function Overview({ snapshot, preview, connection }) {
           )}
           {view === "Overview" ? (
             <>
-              <ReactFlowProvider>
+              {researchTask ? (
+                <ResearchGraph
+                  key={researchTaskId}
+                  snapshot={snapshot}
+                  task={researchTask}
+                  selectedId={selectedResearchId}
+                  onSelect={selectResearch}
+                  onBack={backToTasks}
+                  preview={preview}
+                  connected={preview || connection === "live"}
+                />
+              ) : (
+                <ReactFlowProvider>
                 <Graph
                   snapshot={snapshot}
                   run={run}
                   selected={selected}
                   onSelect={choose}
+                  onResearch={openResearch}
                   preview={preview}
                   connected={preview || connection === "live"}
                 />
-              </ReactFlowProvider>
+                </ReactFlowProvider>
+              )}
               <section className="activity-panel panel">
                 <div className="panel-heading">
                   <h3>
                     <Lightning size={22} />
-                    Current activity
+                    Recent activity
                   </h3>
                   <button
                     className="text-button"
-                    onClick={() => setView("Activity")}
+                    onClick={() => changeView("Activity")}
                   >
                     Show all
                   </button>
                 </div>
                 <ActivityList
-                  items={snapshot.activity}
+                  items={researchTask ? snapshot.activity.filter((item) => item.taskId === researchTaskId) : snapshot.activity}
                   tasks={snapshot.tasks}
                   onSelect={choose}
-                  limit={2}
+                  limit={!researchTask && (run?.nodes.length ?? snapshot.tasks.length) <= 3 ? 4 : 2}
                 />
               </section>
             </>
@@ -706,6 +816,16 @@ function Overview({ snapshot, preview, connection }) {
             </section>
           )}
         </main>
+        {selectedResearchItem ? (
+          <ResearchInspector
+            snapshot={snapshot}
+            task={researchTask}
+            selectedId={selectedResearchId}
+            onSelect={selectResearch}
+            onClose={() => setInspectorOpen(false)}
+            open={inspectorOpen}
+          />
+        ) : (
         <aside className={`inspector panel ${inspectorOpen ? "open" : ""}`}>
           <button
             className="close-inspector"
@@ -732,7 +852,7 @@ function Overview({ snapshot, preview, connection }) {
             role="tablist"
             aria-label="Agent information"
           >
-            {["Details", "Activity", "Results"].map((t) => (
+            {["Details", "Activity", "Summary"].map((t) => (
               <button
                 key={t}
                 role="tab"
@@ -755,7 +875,7 @@ function Overview({ snapshot, preview, connection }) {
                     </dd>
                   </div>
                   <div>
-                    <dt>Current task</dt>
+                    <dt>{selectedRoot ? "Session" : "Task"}</dt>
                     <dd>
                       {selectedRoot
                         ? snapshot.session.title
@@ -771,17 +891,32 @@ function Overview({ snapshot, preview, connection }) {
                           : undefined) ??
                         (waiting.length
                           ? `Waiting for ${waiting.map((n) => n.label).join(", ")}`
-                          : "No activity reported")}
+                          : state === "running"
+                            ? "Working · no tool reported"
+                            : state === "unknown"
+                              ? "Activity unavailable"
+                              : `${words[state]} · no active tool reported`)}
                     </dd>
                   </div>
-                  <div>
+                  {!selectedRoot && <div>
                     <dt>Elapsed time</dt>
                     <dd>
                       <Clock size={18} />
-                      {selectedRoot ? "—" : elapsed(task ?? node, preview)}
+                      {elapsed(task ?? node, preview)}
                     </dd>
-                  </div>
+                  </div>}
+                  {task && <div><dt>Task ID</dt><dd className="task-identifier">{task.id}</dd></div>}
                 </dl>
+                {hasResearch(snapshot.research, task) && (
+                  <section className="inspector-section">
+                    <h3><BookOpen size={24} /> Research trail</h3>
+                    <ResearchSummary
+                      research={snapshot.research}
+                      task={task}
+                      onOpen={() => openResearch(task.id)}
+                    />
+                  </section>
+                )}
                 {children.length > 0 && (
                   <section className="inspector-section">
                     <h3>
@@ -845,23 +980,13 @@ function Overview({ snapshot, preview, connection }) {
                 />
               </>
             ) : (
-              <div className="result-content">
-                <CheckCircle size={30} />
-                <h3>
-                  {state === "completed"
-                    ? "Task completed"
-                    : "Results overview"}
-                </h3>
-                <p>
-                  Status: {words[state]}. Full responses and test results are
-                  available in the OmO session.
-                </p>
-                <p className="muted">
-                  This overview shows reported status only. Done does not imply
-                  verified tests.
-                </p>
+              <div className="summary-content">
+                <div className="summary-status"><Info size={22} /><span>Reported {selectedRoot ? "session" : "task"} status</span><Badge state={state} /></div>
+                <h3>{selectedRoot ? snapshot.session.title : (task?.label ?? node?.label ?? "Task summary")}</h3>
+                <p>{statusDescription(state, selectedRoot ? "session" : "task")}</p>
+                <div className="summary-note"><BookOpen size={20} /><p>Full responses and any test evidence stay in the OmO session. Completion alone does not verify the result.</p></div>
                 {(task?.model ?? snapshot.session.model) && (
-                  <p>
+                  <p className="summary-model">
                     Model:{" "}
                     <strong>{task?.model ?? snapshot.session.model}</strong>
                   </p>
@@ -881,13 +1006,17 @@ function Overview({ snapshot, preview, connection }) {
             </button>
           </footer>
         </aside>
+        )}
       </div>
     </div>
   );
 }
 export function App() {
-  const preview = new URLSearchParams(location.search).get("demo") === "1";
-  const [snapshot, setSnapshot] = useState(preview ? demo : null);
+  const parameters = new URLSearchParams(location.search);
+  const preview = parameters.get("demo") === "1";
+  const researchPreview = preview && parameters.get("scene") === "research";
+  const initialTrail = researchPreview && parameters.get("trail") === "1";
+  const [snapshot, setSnapshot] = useState(preview ? (researchPreview ? researchDemo : demo) : null);
   const [connection, setConnection] = useState(preview ? "demo" : "loading");
   const [reason, setReason] = useState("");
   useEffect(() => {
@@ -969,6 +1098,6 @@ export function App() {
       </div>
     );
   return (
-    <Overview key={snapshot.session.id} snapshot={snapshot} preview={preview} connection={connection} />
+    <Overview key={snapshot.session.id} snapshot={snapshot} preview={preview} connection={connection} initialTrail={initialTrail} />
   );
 }

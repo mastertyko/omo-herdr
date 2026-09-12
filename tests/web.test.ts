@@ -260,7 +260,7 @@ test("DAG projection rejects duplicate runs and foreign owner claims, keeps omis
   assert.equal(parsed?.omitted, 1_000_002);
   assert.equal(
     parseTasks(tasks("root", [{ task_id: "st_unnamed" }]))?.tasks[0]?.label,
-    "Task",
+    "Agent task",
   );
   assert.equal(new WebModel().snapshot().session.title, "No session");
 });
@@ -327,6 +327,30 @@ test("shutdown while the viewer starts closes it and suppresses stale browser no
   assert.equal(closed, true);
   assert.deepEqual(h.notices, []);
   assert.equal(h.subscriptions(), 0);
+});
+
+test("viewer requests research capability only after its session is ready to receive it", async () => {
+  let receive: ((event: unknown) => void) | undefined;
+  let overview: WebOverview;
+  const requested: string[] = [];
+  const pi = { events: {
+    on: (_: string, listener: (event: unknown) => void) => { receive = listener; return () => { receive = undefined; }; },
+    emit: (name: string, data: { parent_session_id: string }) => {
+      assert.equal(name, "omo.research.request");
+      requested.push(data.parent_session_id);
+      receive?.({ name: "omo.research.capability", data: {
+        schema_version: 1, root_session_id: data.parent_session_id, parent_session_id: data.parent_session_id,
+        producer: "omo", capture: "enabled", coverage: "supported-tools", supported_operations: ["search"], sequence: 0, revision: 1,
+      } });
+      assert.equal(overview.model.snapshot().research.status, "available");
+    },
+  } } as unknown as ExtensionAPI;
+  overview = new WebOverview(pi);
+  const ctx = { sessionManager: { getSessionId: () => "ready-session" }, cwd: "/tmp/project" } as unknown as ExtensionContext;
+  overview.start(ctx);
+  assert.deepEqual(requested, ["ready-session"]);
+  await overview.stop();
+  assert.equal(overview.model.snapshot().research.status, "unavailable");
 });
 
 test("session replacement rotates the viewer even when session manager mutates in place", async () => {
@@ -447,4 +471,69 @@ test("each viewer accepts only its own token and old tokens cannot read a replac
     await Promise.all([a.close(), b.close()]);
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("task labels prefer meaningful public names and summaries over internal IDs without reading private inputs", () => {
+  const parsed = parseTasks(tasks("root", [
+    task("st_named", { name: "  Audit API boundary  ", task_summary: "Alternative summary" }),
+    task("st_summary", { name: "st_summary", task_summary: "Research authentication options" }),
+    task("st_blank", { name: " \n\t ", task_summary: "Check error handling" }),
+    task("st_fallback", { name: "st_another_id", task_summary: "st_fallback", description: "PRIVATE", spawn_spec: { prompt: "PRIVATE" } }),
+    task("st_category", { name: undefined, agent_type: undefined, category: "Research" }),
+    { task_id: "st_generic", name: undefined, status: "pending", description: "PRIVATE", task_summary: "" },
+    task("st_clean", { name: "\u001b[31mReview\u001b[0m\ncontracts" }),
+  ]));
+  assert.deepEqual(parsed?.tasks.map(t => t.label), [
+    "Audit API boundary", "Research authentication options", "Check error handling",
+    "Backend task", "Research task", "Agent task", "Review contracts",
+  ]);
+  assert.equal(parsed?.tasks[1]?.id, "st_summary");
+  assert.ok(!JSON.stringify(parsed).includes("PRIVATE"));
+});
+
+test("activity preserves event-time state and describes state and sanitized tool transitions without inventing success", () => {
+  const model = new WebModel(); model.start(root);
+  const emit = (extra: object) => model.receive("omo.task.updated", tasks("root", [task("st_history", { name: "Implement authentication", ...extra })]));
+  emit({ status: "pending", updated_at: "2026-09-12T08:00:00Z" });
+  emit({ updated_at: "2026-09-12T08:01:00Z" });
+  emit({ live_progress: { current_tool: "read /private/SECRET.txt" }, updated_at: "2026-09-12T08:01:00Z" });
+  emit({ live_progress: { current_tool: "read /private/OTHER_SECRET.txt" }, updated_at: "2026-09-12T08:01:00Z" });
+  emit({ live_progress: {}, updated_at: "2026-09-12T08:01:00Z" });
+  emit({ status: "paused", updated_at: "2026-09-12T08:02:00Z" });
+  emit({ status: "running", agent_type: "Changed agent", name: "Renamed task", updated_at: "2026-09-12T08:03:00Z" });
+  emit({ status: "completed", terminal_at: "2026-09-12T08:04:00Z", updated_at: "2026-09-12T08:05:00Z" });
+  const history = [...model.snapshot().activity].reverse();
+  assert.deepEqual(history.map(e => e.action), [
+    "Observed pending", "Started working", "Started reporting read", "Stopped reporting read", "Paused", "Started working", "Completed",
+  ]);
+  assert.deepEqual(history.map(e => e.kind), ["observed", "state", "tool", "tool", "state", "state", "state"]);
+  assert.deepEqual(history.map(e => e.state), ["pending", "running", "running", "running", "paused", "running", "completed"]);
+  assert.equal(history[2]?.tool, "read");
+  assert.equal(history[2]?.sourceAt, undefined);
+  assert.equal(history[3]?.tool, "read");
+  assert.equal(history[1]?.sourceAt, "2026-09-12T08:01:00.000Z");
+  assert.equal(history[6]?.sourceAt, "2026-09-12T08:04:00.000Z");
+  assert.equal(history[4]?.previousState, "running");
+  assert.equal(history[0]?.agent, "Backend");
+  assert.equal(history[0]?.taskLabel, "Implement authentication");
+  assert.equal(history[0]?.label, "Backend · Implement authentication");
+  assert.equal(history[5]?.agent, "Changed agent");
+  assert.equal(history[5]?.taskLabel, "Renamed task");
+  assert.ok(!JSON.stringify(history).includes("SECRET"));
+  assert.ok(!JSON.stringify(history).includes("succeeded"));
+  assert.equal(new Set(history.map(e => e.id)).size, history.length);
+  assert.ok(history.every(e => Number.isFinite(Date.parse(e.at))));
+});
+
+test("activity distinguishes failures and cancellation, ignores unchanged snapshots, and never fabricates missed transitions", () => {
+  const model = new WebModel(); model.start(root);
+  const send = (status: string, extra: object = {}) => model.receive("omo.task.updated", tasks("root", [task("st_outcome", { status, ...extra })]));
+  send("running");send("error");send("error", { updated_at: "2026-09-12T09:00:00Z" });send("paused");send("cancelled");
+  assert.deepEqual([...model.snapshot().activity].reverse().map(e => e.action), ["Observed running", "Failed", "Paused", "Cancelled"]);
+  const failed = model.snapshot().activity.find(e => e.action === "Failed");
+  assert.equal(failed?.state, "failed");assert.equal(failed?.sourceAt, undefined);
+  model.receive("omo.task.updated", tasks("root", [task("st_finished", { status: "completed" })]));
+  assert.deepEqual(model.snapshot().activity.map(e => e.action), ["Observed completed"]);
+  model.receive("omo.task.updated", tasks("root", []));
+  assert.deepEqual(model.snapshot().activity, []);
 });

@@ -1,5 +1,6 @@
 import { displayText } from "./metadata.ts";
 import { object } from "./tasks.ts";
+import { ResearchProjection, type ResearchOwnership, type ResearchSnapshot } from "./research.ts";
 
 export type State =
   | "running"
@@ -44,7 +45,17 @@ export interface Activity {
   id: number;
   taskId?: string;
   label: string;
+  // Local receipt time; source record timestamps are separate and may be older.
   at: string;
+  kind?: "observed" | "state" | "tool";
+  action?: string;
+  taskLabel?: string;
+  agent?: string;
+  state?: State;
+  previousState?: State;
+  // The tool involved in this event, including one that stopped being reported.
+  tool?: string;
+  sourceAt?: string;
 }
 export interface WebSnapshot {
   schemaVersion: 1;
@@ -59,6 +70,7 @@ export interface WebSnapshot {
   tasks: AgentTask[];
   runs: GraphRun[];
   activity: Activity[];
+  research: ResearchSnapshot;
   omitted: number;
   updatedAt?: string;
 }
@@ -83,6 +95,15 @@ const id = (v: unknown): string | undefined =>
   typeof v === "string" && /^[A-Za-z0-9_.:-]{1,256}$/.test(v) ? v : undefined;
 const text = (v: unknown, max = 160) =>
   typeof v === "string" ? displayText(v, max) : undefined;
+// OmO emits an explicit name and task_summary, but may use task_id as the name.
+// Do not derive labels from descriptions, prompts, outputs, or transcripts.
+const taskLabel = (v: unknown): string | undefined => {
+  const label = text(v);
+  if (!label || /^st_[A-Za-z0-9_.:-]+(?:…)?$/.test(label)) return undefined;
+  return label;
+};
+const roleTaskLabel = (agent: string): string =>
+  `${agent.charAt(0).toUpperCase()}${agent.slice(1)} task`;
 // OmO's current_tool is a display string: tool name followed by an argument preview.
 // Only retain the leading tool identifier; the preview may contain private input.
 const toolName = (v: unknown): string | undefined =>
@@ -120,13 +141,14 @@ export function parseTasks(value: unknown): TaskBatch | undefined {
     seen.add(taskId);
     const live = object(t.live_progress);
     const state = stateOf(t.status);
+    const agent = text(t.agent_type, 64) ?? text(t.category, 64) ?? "Agent";
     // Explicit allowlist: never forward prompts, assistant text, final responses or tool arguments.
     tasks.push({
       id: taskId,
       parentSessionId: sessionId,
       childSessionId: id(t.child_session_id),
-      label: text(t.name) ?? text(t.task_summary) ?? "Task",
-      agent: text(t.agent_type, 64) ?? text(t.category, 64) ?? "Agent",
+      label: taskLabel(t.name) ?? taskLabel(t.task_summary) ?? roleTaskLabel(agent),
+      agent,
       state,
       model: text(t.model),
       activity: state === "running" ? toolName(live?.current_tool) : undefined,
@@ -231,8 +253,47 @@ export function parseRuns(
   };
 }
 
+const stateActions: Record<State, string> = {
+  running: "Started working",
+  pending: "Queued",
+  blocked: "Blocked",
+  completed: "Completed",
+  failed: "Failed",
+  cancelled: "Cancelled",
+  paused: "Paused",
+  unknown: "Status became unknown",
+  idle: "Became idle",
+};
+
+function activityChange(task: AgentTask, old: AgentTask | undefined): Omit<Activity, "id" | "at"> | undefined {
+  if (old && old.state === task.state && old.activity === task.activity) return;
+  const kind = !old ? "observed" : old.state !== task.state ? "state" : "tool";
+  // Progress snapshots are coalesced upstream. An observed tool change is not proof
+  // of tool completion or success, and the first snapshot is not a start event.
+  const action = kind === "observed"
+    ? `Observed ${task.state}${task.activity ? ` · Reporting ${task.activity}` : ""}`
+    : kind === "state"
+      ? stateActions[task.state]
+      : task.activity ? `Started reporting ${task.activity}` : `Stopped reporting ${old!.activity}`;
+  return {
+    taskId: task.id,
+    label: `${task.agent} · ${task.label}`,
+    kind,
+    action,
+    taskLabel: task.label,
+    agent: task.agent,
+    state: task.state,
+    previousState: old?.state,
+    tool: task.activity ?? (kind === "tool" ? old?.activity : undefined),
+    // live_progress does not contain a timestamp for its current tool. Do not
+    // borrow the task's unchanged updated_at and claim it dates a tool event.
+    sourceAt: kind === "tool" ? undefined : task.completedAt ?? task.updatedAt,
+  };
+}
+
 /** Bounded, memory-only projection of the public event bus. Ownership is never inferred from DAG edges. */
 export class WebModel {
+  private research = new ResearchProjection();
   private taskBatches = new Map<string, TaskBatch>();
   private runBatches = new Map<string, ReturnType<typeof parseRuns>>();
   private log: Activity[] = [];
@@ -244,6 +305,7 @@ export class WebModel {
     if (this.session?.id !== session.id) {
       this.log = [];
       this.updatedAt = undefined;
+      this.research.clear();
     }
     this.session = session;
     this.prune();
@@ -252,6 +314,11 @@ export class WebModel {
     if (this.session) this.session = { ...this.session, ...session };
   }
   receive(name: string, payload: unknown): void {
+    if (name === "omo.research.capability" || name === "omo.research.event") {
+      if (this.session && this.research.receive(name, payload, this.researchOwnership()))
+        this.updatedAt = new Date().toISOString();
+      return;
+    }
     const batch =
       name === "omo.task.updated"
         ? parseTasks(payload)
@@ -264,18 +331,8 @@ export class WebModel {
       const prior = this.taskBatches.get(batch.sessionId);
       for (const task of batch.tasks) {
         const old = prior?.tasks.find((t) => t.id === task.id);
-        if (
-          !old ||
-          old.state !== task.state ||
-          old.activity !== task.activity
-        ) {
-          this.log.unshift({
-            id: ++this.seq,
-            taskId: task.id,
-            label: `${task.agent} · ${task.label}`,
-            at: new Date().toISOString(),
-          });
-        }
+        const change = activityChange(task, old);
+        if (change) this.log.unshift({ id: ++this.seq, ...change, at: new Date().toISOString() });
       }
       this.log = this.log.slice(0, 80);
       this.taskBatches.set(batch.sessionId, batch);
@@ -299,6 +356,18 @@ export class WebModel {
     const sessions = this.allowedSessions();
     for (const map of [this.taskBatches, this.runBatches])
       for (const sid of map.keys()) if (!sessions.has(sid)) map.delete(sid);
+    this.research.prune(this.researchOwnership());
+  }
+  private researchOwnership(): ResearchOwnership {
+    const parentSessionIds = this.allowedSessions();
+    const tasks: AgentTask[] = [];
+    const seen = new Set<string>();
+    for (const sid of parentSessionIds) for (const task of this.taskBatches.get(sid)?.tasks ?? []) {
+      if (seen.has(task.id) || tasks.length >= 512) continue;
+      seen.add(task.id);
+      tasks.push(task);
+    }
+    return { rootSessionId: this.session?.id ?? "", parentSessionIds, tasks };
   }
   snapshot(): WebSnapshot {
     const session = this.session ?? {
@@ -334,10 +403,12 @@ export class WebModel {
       runs: rootRuns?.runs ?? [],
       omitted: omitted + (rootRuns?.omitted ?? 0),
       activity: this.log.filter((e) => !e.taskId || seen.has(e.taskId)),
+      research: this.research.snapshot(this.researchOwnership()),
       updatedAt: this.updatedAt,
     };
   }
   clear(): void {
+    this.research.clear();
     this.taskBatches.clear();
     this.runBatches.clear();
     this.log = [];
