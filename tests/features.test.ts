@@ -25,7 +25,7 @@ test("session changes, tool concurrency, compaction, metadata cleanup and doctor
   let id = "first";
   let name: string | undefined = "First session";
   let context = {tokens:420,percent:42,contextWindow:1000};
-  const ctx = {mode:"tui",hasUI:true,isIdle:()=>true,hasPendingMessages:()=>false,
+  const ctx = {cwd:directory,mode:"tui",hasUI:true,isIdle:()=>true,hasPendingMessages:()=>false,
     sessionManager:{getSessionId:()=>id,getSessionFile:()=>`/tmp/${id}.jsonl`,getSessionName:()=>name},
     model:{provider:"test",id:"first-model"},getContextUsage:()=>context,
     ui:{notify:(message:string)=>notifications.push(message)},
@@ -38,7 +38,7 @@ test("session changes, tool concurrency, compaction, metadata cleanup and doctor
   const last = async (command: string) => (await calls()).filter(args=>args[1]===command).at(-1)!;
   const until = async (predicate:()=>Promise<boolean>) => {for(let i=0;i<200;i++){if(await predicate())return;await delay(10);}assert.fail(JSON.stringify(await calls()));};
   try {
-    omoHerdr({on:(event:string,handler:Handler)=>handlers.set(event,handler),registerCommand:(key:string,command:Omit<RegisteredCommand,"name"|"sourceInfo">)=>commands.set(key,command)} as unknown as ExtensionAPI);
+    omoHerdr({events:{on:()=>()=>{}},registerTool:()=>{},appendEntry:()=>{},on:(event:string,handler:Handler)=>handlers.set(event,handler),registerCommand:(key:string,command:Omit<RegisteredCommand,"name"|"sourceInfo">)=>commands.set(key,command)} as unknown as ExtensionAPI);
     await emit("session_start");
     await until(async()=>field(await last("report-metadata")??[],"--title")==="First session");
     await emit("tool_execution_start",{toolCallId:"a",toolName:"bash",args:{secret:"NEVER-SEND"}});
@@ -97,7 +97,7 @@ test("doctor is available outside Herdr while lifecycle hooks remain inactive", 
   const hooks:string[]=[];
   const notices:string[]=[];
   try {
-    omoHerdr({on:(event:string)=>hooks.push(event),registerCommand:(_key:string,value:typeof command)=>{command=value;}} as unknown as ExtensionAPI);
+    omoHerdr({events:{on:()=>()=>{}},registerTool:()=>{},appendEntry:()=>{},on:(event:string)=>hooks.push(event),registerCommand:(_key:string,value:typeof command)=>{command=value;}} as unknown as ExtensionAPI);
     assert.deepEqual(hooks,[]);
     assert.ok(command);
     await command.handler("doctor",{mode:"tui",hasUI:true,ui:{notify:(text:string)=>notices.push(text)}} as unknown as Parameters<typeof command.handler>[1]);

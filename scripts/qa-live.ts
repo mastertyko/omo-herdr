@@ -2,13 +2,13 @@
 import assert from "node:assert/strict";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import {
-  discoverAndLoadExtensions, ExtensionRunner, SessionManager,
+  createEventBus, discoverAndLoadExtensions, ExtensionRunner, SessionManager,
   type ExtensionActions, type ExtensionContext, type ExtensionContextActions,
   type ExtensionUIContext, type ModelRegistry,
 } from "@code-yeongyu/senpi";
@@ -35,6 +35,9 @@ const runners: ExtensionRunner[] = [];
 const errors: unknown[] = [];
 const observations: string[] = [];
 const notices: string[] = [];
+const bus = createEventBus();
+let dagListenerEvents = 0;
+bus.on("senpi:extension-rpc-event", () => { dagListenerEvents++; });
 let paneId: string;
 async function eventually(predicate: () => Promise<boolean>, label: string): Promise<void> {
   for (let i = 0; i < 200; i++) { if (await predicate()) { observations.push(label); return; } await delay(25); }
@@ -50,10 +53,10 @@ let contextUsage = { tokens: 420, percent: 42, contextWindow: 1000 };
 let model: ExtensionContext["model"] = { provider: "qa", id: "first-model" } as ExtensionContext["model"];
 
 async function host(session: SessionManager, mode: "tui" | "rpc" = "tui") {
-  const loaded = await discoverAndLoadExtensions([entry], base, join(base, "empty"));
+  const loaded = await discoverAndLoadExtensions([entry], base, join(base, "empty"), bus);
   assert.deepEqual(loaded.errors, []);
   const runner = new ExtensionRunner(loaded.extensions, loaded.runtime, base, session, {} as ModelRegistry);
-  runner.bindCore({} as ExtensionActions, {
+  runner.bindCore({appendEntry: (type: string, data: unknown) => { session.appendCustomEntry(type, data); }} as unknown as ExtensionActions, {
     getModel: () => model, isIdle: () => true, hasPendingMessages: () => false, isCompacting: () => false,
     getContextUsage: () => contextUsage,
   } as ExtensionContextActions);
@@ -71,15 +74,8 @@ try {
   await mkdir(join(base, "config/herdr"), { recursive: true });
   await mkdir(join(base, "runtime"), { recursive: true });
   await mkdir(join(base, "agent"), { recursive: true });
-  await writeFile(join(base, "config/herdr/config.toml"), `onboarding = false
-[ui.sidebar.agents]
-rows = [
-  ["state_icon", "agent", "state_text"],
-  ["pane"],
-  ["$omo_model", "$omo_context"],
-  ["workspace", "tab"],
-]
-`);
+  await writeFile(join(base, "config/herdr/config.toml"), "onboarding = false\n" +
+    await readFile(new URL("../profiles/sidebar.toml", import.meta.url), "utf8"));
   server = spawn(bin, ["server"], { env, stdio: ["ignore", "pipe", "pipe"] });
   let spawnError: Error | undefined;
   server.on("error", error => { spawnError = error; });
@@ -98,6 +94,14 @@ rows = [
   const h = await host(session);
   await h.runner.emit({ type: "session_start", reason: "startup" });
   await state("idle");
+  bus.emit("senpi:extension-rpc-event", {name:"omo.task.updated",data:{parent_session_id:session.getSessionId(),tasks:[
+    {task_id:"st_a",status:"running"}, {task_id:"st_b",status:"pending"}, {task_id:"st_c",status:"completed"},
+  ]}});
+  await token("omo_tasks", "1 running · 1 pending · 1 completed");
+  bus.emit("senpi:extension-rpc-event", {name:"omo.task.updated",data:{parent_session_id:"unrelated",tasks:[{task_id:"st_bad",status:"error"}]}});
+  await token("omo_tasks", "1 running · 1 pending · 1 completed");
+  assert.equal(dagListenerEvents, 2, "another extension can observe the same bus events");
+  await token("omo_context_meter", "Context 42%");
   await token("omo_model", "qa/first-model");
   await token("omo_context", "42% (420/1000)");
   await eventually(async () => (await pane()).title === "QA session", "session title");
@@ -108,10 +112,14 @@ rows = [
   await token("omo_activity", "Running bash");
   await eventually(async () => (await pane()).state_labels?.working === "Running bash", "working presentation label");
   const question = h.runner.getUIContext().confirm("Private QA title", "Private QA question");
-  await state("blocked"); h.answer(false); assert.equal(await question, false); await state("working");
+  await state("blocked"); await token("omo_attention", "Needs your input"); h.answer(false); assert.equal(await question, false); await state("working");
   await h.runner.emit({ type: "agent_end", messages: [] }); await delay(100); await state("working");
   await h.runner.emit({ type: "tool_execution_end", toolCallId: "qa-tool", toolName: "bash", result: {}, isError: false });
+  const summary = h.runner.getToolDefinition("herdr_summary"); assert.ok(summary);
+  await summary.execute("qa-summary", {task:"Verify overview",result:"Fixture checks passed"}, undefined, undefined, h.runner.createCommandContext());
+  await token("omo_task", "Verify overview"); await token("omo_result", "Fixture checks passed");
   await h.runner.emit({ type: "agent_settled" }); await state("idle"); await token("omo_activity");
+  await token("omo_result", "Fixture checks passed");
   // Public events with synthetic compaction data: no provider invocation.
   const before = { type: "session_before_compact", requestId: "qa", reason: "manual", willRetry: false, signal: new AbortController().signal, preparation: {}, branchEntries: [] };
   await h.runner.emit(before as Parameters<ExtensionRunner["emit"]>[0]);
@@ -124,6 +132,9 @@ rows = [
   await h.runner.emit({ type: "session_start", reason: "new" });
   await token("omo_model", "qa/second-model"); await token("omo_context", "5% (50/1000)");
   await eventually(async () => (await pane()).title !== "QA session", "old session title cleared");
+  await token("omo_task"); await token("omo_result"); await token("omo_tasks");
+  await summary.execute("qa-result", {result:"Saved explicit result"}, undefined, undefined, h.runner.createCommandContext());
+  await token("omo_result", "Saved explicit result");
   const duplicate = await host(SessionManager.inMemory(base));
   await duplicate.runner.emit({ type: "session_start", reason: "startup" });
   await duplicate.runner.emit({ type: "agent_start" });
@@ -141,6 +152,7 @@ rows = [
   const reloaded = await host(session);
   await reloaded.runner.emit({ type: "session_start", reason: "reload" });
   await state("idle"); await token("omo_model", "qa/second-model");
+  await token("omo_result", "Saved explicit result");
   await reloaded.runner.emit({ type: "session_shutdown", reason: "quit" }); await state("unknown");
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ version, checks: observations, errors }, null, 2));

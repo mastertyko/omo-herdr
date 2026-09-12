@@ -75,29 +75,33 @@ that bypasses that API and reads terminal input directly will need a separate ad
 
 ## Session metadata and diagnostics
 
-The extension publishes the explicit session name as the pane title, plus 3 custom tokens:
+The extension publishes the explicit session name as the pane title, with the following custom tokens:
 
 | Token | Example |
 | --- | --- |
 | `$omo_model` | `provider/model` |
 | `$omo_context` | `42% (420/1000)`; `unknown` when usage is unavailable after compaction |
 | `$omo_activity` | `Running bash`, `Running read (+1)` or `Compacting context` |
+| `$omo_task` | Explicit short task label supplied by OmO |
+| `$omo_tasks` | `2 running · 1 pending · 3 completed` |
+| `$omo_attention` | `Needs your input` or `1 failed task` |
+| `$omo_result` | Explicit outcome, e.g. `12 tests passed · PR #42` |
+| `$omo_branch` / `$omo_worktree` | Git branch / worktree directory name |
+| `$omo_elapsed` | `08:32` or `Waiting 02:14` |
+| `$omo_context_meter` | `Context 42%`, `High context 80%`, `Critical context 90%` |
+| `$omo_context_percent` | Numeric `42`, for custom numeric color rules |
 
 Tool and compaction activity also label the existing `working` state. Waits and notifications
-continue to use the normal semantic states. Tool arguments, results and prompt text are never
-copied. Session names and tool names are sanitized and length-limited for terminal display.
+continue to use the normal semantic states. Ordinary tool arguments, tool results and prompt
+text are never copied automatically. The `herdr_summary` tool intentionally publishes only
+the short labels supplied to it. Session names and tool names are sanitized and length-limited for terminal display.
 
-To show the custom tokens in the sidebar, merge this example into your Herdr configuration:
-
-```toml
-[ui.sidebar.agents]
-rows = [
-  ["state_icon", "agent", "state_text"],
-  ["pane"],
-  ["$omo_model", "$omo_context"],
-  ["workspace", "tab"],
-]
-```
+For the complete session overview, merge [profiles/sidebar.toml](profiles/sidebar.toml)
+into your Herdr `config.toml`. It includes attention colors and context thresholds at 80%
+and 90%. The profile ships in the npm package. Keep a backup and replace an existing
+`[ui.sidebar.agents].rows` setting rather than defining the table twice. Use Herdr's global
+menu **reload config** to refresh the client's sidebar. `herdr server reload-config` refreshes
+the server configuration; client presentation also needs the client menu action.
 
 This changes the default Agent layout. Missing custom tokens disappear for other agents.
 Herdr 0.9.0 only accepts built-in agent IDs in `rows_by_agent`, so `omo` cannot have a
@@ -105,7 +109,7 @@ separate layout override. `$omo_activity` can be used instead of the built-in `s
 
 Metadata uses its own source, `custom:omo:metadata`, scoped to the `custom:omo` agent.
 It refreshes every 15 seconds, expires after 45 seconds without a refresh, and clears on
-session changes or shutdown. Only the extension's 3 named tokens and its own presentation
+session changes or shutdown. Only the extension's named tokens and its own presentation
 fields are cleared. Failed metadata delivery does not suppress lifecycle reports.
 Set `OMO_HERDR_METADATA=0` before launching OmO to disable metadata while keeping status.
 
@@ -119,6 +123,50 @@ Inside OmO:
 `status` shows ownership, configuration and recent delivery health without CLI probes.
 `doctor` also checks Herdr's version and current pane through bounded, read-only CLI calls.
 Both explain missing configuration and inactive reporters, including nested processes.
+
+## Session overview and DAG coexistence
+
+`omo-herdr` owns the compact sidebar overview. `omo-herdr-dag` continues to own its
+separate DAG/task viewer. This extension does not create, close, rename or control that
+viewer, consume its snapshots, or change its installation.
+
+The adapter listens for `omo.task.updated` on Senpi's public shared event bus
+(`senpi:extension-rpc-event`). The payload is an OmO-specific, version-sensitive contract,
+verified against `omo-ai 5.0.0-0.beta.56`. A complete snapshot replaces the previous counts.
+Only direct tasks with the current `parent_session_id` are counted; DAG nodes and nested
+child tasks are not counted again. `pending` means scheduled/queued, not waiting for a human.
+`error`, `interrupted` and `lost` contribute to failed tasks; cancelled and unknown states
+are shown separately. Truncated snapshots explicitly show how many tasks are omitted.
+Counts cover the current session, not just its latest turn. Until OmO emits a snapshot,
+no counts are shown. No private task-store files or transcripts are scanned.
+
+Task failures are presentation metadata; they do not change the parent agent to `blocked`
+or `idle`. An actual open Senpi prompt takes precedence with `Needs your input`.
+The event listener captures startup snapshots, filters other sessions and unsubscribes
+on unload. Session replacement clears the previous overview. If a future OmO version
+changes the payload, lifecycle reporting and other metadata continue independently.
+
+The model-facing `herdr_summary` tool accepts optional `task` and `result` strings, each
+at most 160 characters (also sanitized to 160 UTF-8 bytes for Herdr). Its guideline asks
+OmO to supply a short task label at the start of substantial work and a verified result
+before finishing. For example:
+
+```json
+{"task":"Implement login","result":"12 tests passed · PR #42"}
+```
+
+These are explicit agent-reported labels, not independently inferred test/PR facts.
+Empty strings clear fields. Labels are stored as custom entries in the current OmO session
+and restored from its active branch on reload/resume; this does not enable Herdr native
+session restore. A new run clears the previous result. Abort displays `Stopped`. Normal
+shutdown clears Herdr metadata, while the saved session entry remains available on resume.
+
+Elapsed time starts at `agent_start`, survives automatic continuations and freezes at
+`agent_settled` or abort. Open prompts show a separate waiting timer. Live display samples
+every 5 seconds. Git identity refreshes at most every 15 seconds using bounded, read-only
+local Git commands; no remote requests, status scans or repository writes occur.
+Detached HEAD uses the short commit; non-Git folders show the directory name without a branch.
+Metadata opt-out also disables this overview, its tool, event subscription, Git probes and timers.
 
 ## Reporting and ownership
 
@@ -136,7 +184,8 @@ Both explain missing configuration and inactive reporters, including nested proc
   and inherited by children, preventing nested OMO processes from reporting over their parent.
   A process-local guard also prevents duplicate extension instances from owning the same pane.
 - Sends no prompts, model output, tool arguments or credentials. Session ID/path, explicit session name, model identifier, context usage and tool names
-  are included; dialog titles are not copied into Herdr status messages.
+  are included, together with task counts, branch/worktree names, timing and explicit
+  summary-tool labels. Dialog titles are not copied into Herdr status messages.
 
 This guard covers inherited child processes. A separate process that manually fabricates the
 same Herdr environment is outside the ownership model. Normal shutdown releases authority;
@@ -185,7 +234,7 @@ and runs both checks on Linux. Neither check changes user configuration or calls
 
 ### Verification on 2026-09-12
 
-- TypeScript check and 18 automated tests passed.
+- TypeScript check and 22 automated tests passed.
 - Real Senpi loader/UI events and Herdr CLI passed the host smoke check.
 - An isolated **real Herdr 0.9.0 server** accepted and exposed the sequence
   `idle → working → blocked → working → idle → unknown` after release, with agent label `omo`.

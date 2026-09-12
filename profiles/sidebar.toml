@@ -1,0 +1,14 @@
+# Merge into Herdr's config.toml. Replaces the default Agent rows only.
+# Official Herdr 0.9.0; custom omo agents cannot use rows_by_agent overrides.
+[ui.sidebar.agents]
+rows = [
+  ["state_icon", "agent", "state_text"],
+  ["$omo_worktree", "pane"],
+  [{ token = "$omo_branch", dim = true }],
+  ["$omo_task"],
+  ["$omo_tasks"],
+  [{ token = "$omo_attention", fg = "#f9e2af", bold = true, rules = [{ contains = "failed", fg = "#f38ba8" }] }],
+  ["$omo_result"],
+  [{ token = "$omo_context_meter", rules = [{ starts_with = "Critical", fg = "#f38ba8", bold = true }, { starts_with = "High", fg = "#f9e2af" }] }, "$omo_elapsed"],
+  ["workspace", "tab"],
+]

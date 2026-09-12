@@ -3,6 +3,7 @@ import { isAbsolute } from "node:path";
 import { doctorReport } from "./doctor.ts";
 import { claimPane, readEnvironment } from "./environment.ts";
 import { displayText, metadataFor } from "./metadata.ts";
+import { Overview } from "./overview.ts";
 import { cliTransport, Reporter } from "./reporter.ts";
 
 export default function omoHerdr(pi: ExtensionAPI): void {
@@ -28,6 +29,7 @@ export default function omoHerdr(pi: ExtensionAPI): void {
     },
   });
   if (!environment) return;
+  const overview = metadataEnabled ? new Overview(pi, publish) : undefined;
 
   function reset(): void {
     active = false;
@@ -48,7 +50,7 @@ export default function omoHerdr(pi: ExtensionAPI): void {
       message: prompt ? "Waiting for user input" : undefined,
       sessionId: ctx.sessionManager.getSessionId(),
       sessionPath: file && isAbsolute(file) ? file : undefined,
-      metadata: metadataEnabled ? metadataFor(ctx, activity) : undefined,
+      metadata: metadataEnabled ? { ...metadataFor(ctx, activity), ...overview?.metadata(!!prompt) } : undefined,
     });
   }
 
@@ -61,16 +63,19 @@ export default function omoHerdr(pi: ExtensionAPI): void {
     }
     // New/resumed/forked sessions can reuse the same extension instance.
     reset();
+    overview?.start(ctx);
     active = !ctx.isIdle() || ctx.hasPendingMessages();
     compacting = ctx.isCompacting?.() ?? false;
+    if (active || compacting) overview?.begin();
     publish(ctx);
   });
 
-  pi.on("agent_start", (_event, ctx) => { if (!reporter) return; active = true; publish(ctx); });
+  pi.on("agent_start", (_event, ctx) => { if (!reporter) return; active = true; overview?.begin(); publish(ctx); });
   // agent_end can precede retries, compaction and queued continuations.
   pi.on("agent_settled", (_event, ctx) => {
     if (!reporter) return;
     active = false;
+    overview?.settle();
     tools.clear();
     publish(ctx);
   });
@@ -78,6 +83,7 @@ export default function omoHerdr(pi: ExtensionAPI): void {
     if (!reporter) return;
     active = false;
     compacting = false;
+    overview?.settle(true);
     tools.clear();
     publish(ctx);
   });
@@ -125,7 +131,8 @@ export default function omoHerdr(pi: ExtensionAPI): void {
   pi.on("session_info_changed", (_event, ctx) => publish(ctx));
   pi.on("model_select", (_event, ctx) => publish(ctx));
   pi.on("message_end", (_event, ctx) => publish(ctx));
-  pi.on("session_shutdown", async () => {
+  pi.on("session_shutdown", async event => {
+    overview?.stop(["new", "resume", "fork"].includes(event.reason));
     const closing = reporter;
     reporter = undefined;
     try { await closing?.close(); } finally {

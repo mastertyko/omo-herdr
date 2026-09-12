@@ -12,8 +12,10 @@ and expected impact.
 - The extension reports only from a Herdr TUI session using the inherited executable,
   socket and pane identifiers. It never executes interpolated shell commands.
 - Reports contain status, session ID/path, explicit session name, model identifier, context
-  usage and tool names. Metadata is optional (`OMO_HERDR_METADATA=0`). Prompt text, tool arguments,
-  model output and credentials must not be included.
+  usage, tool names, task counts, branch/worktree names and timing. Explicit task/result
+  labels from `herdr_summary` are intentionally published and persisted in the local session.
+  Do not extract prompts, outputs or credentials into those labels. Metadata is optional (`OMO_HERDR_METADATA=0`). Ordinary tool arguments,
+  model output and credentials must not be copied into metadata automatically.
 - Child processes must not replace their parent pane's status. Duplicate extension
   instances must not claim the same process ownership.
 - Requests and shutdown must be bounded. Pending reports must not arrive after a release.

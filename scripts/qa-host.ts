@@ -10,7 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import {
   discoverAndLoadExtensions, ExtensionRunner, SessionManager,
-  type ExtensionUIContext, type ModelRegistry,
+  type ExtensionUIContext, type ExtensionActions, type ExtensionContextActions, type ModelRegistry,
 } from "@code-yeongyu/senpi";
 
 const bin = process.env.HERDR_BIN_PATH;
@@ -51,6 +51,7 @@ try {
   // No model or provider is used by these host lifecycle/UI calls.
   const session = SessionManager.inMemory(directory);
   runner = new ExtensionRunner(loaded.extensions, loaded.runtime, directory, session, {} as ModelRegistry);
+  runner.bindCore({appendEntry: (type: string, data: unknown) => { session.appendCustomEntry(type, data); }} as unknown as ExtensionActions, {getModel:()=>undefined, isIdle:()=>true, hasPendingMessages:()=>false, isCompacting:()=>false, getContextUsage:()=>undefined} as ExtensionContextActions);
   runner.onError((error) => errors.push(error));
   let answer!: (value: boolean) => void;
   runner.setUIContext({ confirm: () => new Promise<boolean>((resolve) => { answer = resolve; }) } as unknown as ExtensionUIContext, "tui");
