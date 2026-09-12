@@ -9,12 +9,16 @@ dependencies; OMO supplies Senpi at runtime.
 bun install --frozen-lockfile
 bun run check
 HERDR_BIN_PATH="$(command -v herdr)" bun run qa:host
+HERDR_BIN_PATH="$(command -v herdr)" bun run qa:live
 npm pack --dry-run
 ```
 
 The host check needs Herdr installed. It uses a temporary mock socket with the real
 Senpi loader and UI events. It does not open user sessions or call models. For lifecycle
-changes, also exercise the extension in a Herdr pane with `omo -e /absolute/path/to/src/index.ts`.
+or metadata changes, run `qa:live` against official Herdr 0.9.0. It starts and stops an
+isolated server and checks the real protocol without touching user sessions. CI downloads
+the official binary with a pinned checksum and runs both checks. A human-driven TUI/model
+run is a separate optional check with `omo -e /absolute/path/to/src/index.ts`.
 
 Keep tests focused on observable behavior, including retries, session replacement,
 child-process isolation, and shutdown ordering. Use only Senpi's public extension API.

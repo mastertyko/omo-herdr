@@ -57,7 +57,7 @@ try {
 
   async function waitFor(state: string) {
     for (let i = 0; i < 200; i++) {
-      if (requests.at(-1)?.params.state === state) { await delay(30); return; }
+      if (requests.filter(request => request.method === "pane.report_agent").at(-1)?.params.state === state) { await delay(30); return; }
       await delay(10);
     }
     throw new Error(`Missing ${state}: ${JSON.stringify({ requests, errors })}`);
@@ -77,9 +77,9 @@ try {
   await runner.emit({ type: "session_shutdown", reason: "quit" });
   runner = undefined;
   assert.deepEqual(errors, []);
-  assert.deepEqual(requests.map((request) => request.method === "pane.release_agent" ? "release" : request.params.state),
+  assert.deepEqual(requests.filter(request => request.method !== "pane.report_metadata").map((request) => request.method === "pane.release_agent" ? "release" : request.params.state),
     ["idle", "working", "blocked", "working", "idle", "release"]);
-  assert.ok(requests.every((request) => request.params.source === "custom:omo" && request.params.agent === "omo"));
+  assert.ok(requests.every((request) => ["custom:omo", "custom:omo:metadata"].includes(String(request.params.source)) && request.params.agent === "omo"));
   assert.equal(requests[0]?.params.agent_session_id, session.getSessionId());
   console.log("PASS: Senpi loader, lifecycle and real UI prompt events through Herdr CLI to an isolated mock socket.");
   console.log("No model requests, user sessions or global configuration were used.");

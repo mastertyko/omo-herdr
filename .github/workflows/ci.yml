@@ -35,5 +35,15 @@ jobs:
       - name: Run checks
         run: bun run check
 
+      - name: Download official Herdr 0.9.0 with pinned checksum
+        run: bun run qa:download-herdr "$RUNNER_TEMP/herdr"
+
+      - name: Test real Senpi host and official Herdr
+        env:
+          HERDR_BIN_PATH: ${{ runner.temp }}/herdr
+        run: |
+          bun run qa:host
+          bun run qa:live
+
       - name: Verify package contents
         run: npm pack --dry-run
