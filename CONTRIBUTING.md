@@ -21,7 +21,9 @@ the official binary with a pinned checksum and runs both checks. A human-driven 
 run is a separate optional check with `omo -e /absolute/path/to/src/index.ts`.
 
 Keep tests focused on observable behavior, including retries, session replacement,
-child-process isolation, and shutdown ordering. Use only Senpi's public extension API.
+child-process isolation, and shutdown ordering. Use only Senpi's public extension API. The isolated task adapter uses OmO's version-sensitive
+`omo.task.updated` payload over the public event bus; test the contract and session filter
+when updating OmO. Do not import private OmO modules or read task transcripts.
 Use `agent_settled`, not `agent_end`, to mark a run idle. Keep cleanup idempotent.
 
 ## Pull requests
