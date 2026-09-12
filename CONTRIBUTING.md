@@ -7,9 +7,11 @@ dependencies; OMO supplies Senpi at runtime.
 
 ```sh
 bun install --frozen-lockfile
+npm --prefix web ci
 bun run check
 HERDR_BIN_PATH="$(command -v herdr)" bun run qa:host
 HERDR_BIN_PATH="$(command -v herdr)" bun run qa:live
+HERDR_BIN_PATH="$(command -v herdr)" bun run qa:web
 npm pack --dry-run
 ```
 

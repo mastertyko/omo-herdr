@@ -1,0 +1,113 @@
+// Explicit preview fixture. Never used as a fallback for a live connection.
+const started = "2026-09-12T12:26:00Z";
+export const demo = {
+  schemaVersion: 1,
+  session: {
+    id: "demo",
+    title: "Build authentication",
+    project: "Authentication",
+    state: "running",
+    model: "Astra",
+    activity: "Coordinating",
+  },
+  tasks: [
+    {
+      id: "st_explorer",
+      label: "Discovery",
+      agent: "Explorer",
+      state: "completed",
+      startedAt: started,
+      completedAt: "2026-09-12T12:30:12Z",
+      model: "Astra",
+    },
+    {
+      id: "st_backend",
+      label: "Auth API",
+      agent: "Backend",
+      state: "running",
+      activity: "Implementing token validation",
+      startedAt: started,
+      model: "Astra",
+      childSessionId: "backend",
+    },
+    {
+      id: "st_tester",
+      label: "API tests",
+      agent: "Tester",
+      state: "pending",
+      parentTaskId: "st_backend",
+      model: "Astra",
+    },
+    {
+      id: "st_frontend",
+      label: "Login screen",
+      agent: "Frontend",
+      state: "running",
+      activity: "Building the login screen",
+      startedAt: started,
+      model: "Astra",
+    },
+  ],
+  runs: [
+    {
+      id: "demo-run",
+      name: "Build authentication",
+      state: "running",
+      nodes: [
+        {
+          id: "explore",
+          label: "Discovery",
+          state: "completed",
+          taskId: "st_explorer",
+        },
+        {
+          id: "api",
+          label: "Auth API",
+          state: "running",
+          taskId: "st_backend",
+        },
+        {
+          id: "ui",
+          label: "Login screen",
+          state: "running",
+          taskId: "st_frontend",
+        },
+        {
+          id: "test",
+          label: "API tests",
+          state: "pending",
+          taskId: "st_tester",
+        },
+        { id: "integration", label: "Integration", state: "pending" },
+      ],
+      edges: [
+        { from: "explore", to: "api" },
+        { from: "explore", to: "ui" },
+        { from: "api", to: "test" },
+        { from: "test", to: "integration" },
+        { from: "ui", to: "integration" },
+      ],
+    },
+  ],
+  activity: [
+    {
+      id: 3,
+      taskId: "st_backend",
+      label: "Backend is updating Auth API",
+      at: "2026-09-12T12:28:00Z",
+    },
+    {
+      id: 2,
+      taskId: "st_tester",
+      label: "Tester is waiting on a dependency",
+      at: "2026-09-12T12:27:00Z",
+    },
+    {
+      id: 1,
+      taskId: "st_frontend",
+      label: "Frontend is building the login screen",
+      at: "2026-09-12T12:26:00Z",
+    },
+  ],
+  omitted: 0,
+};
