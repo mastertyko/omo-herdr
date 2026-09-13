@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { basename } from "node:path";
+import { basename, dirname } from "node:path";
 import { displayText } from "./metadata.ts";
 
 function git(cwd: string, args: string[]): Promise<string | undefined> {
@@ -11,7 +11,7 @@ function git(cwd: string, args: string[]): Promise<string | undefined> {
   });
 }
 /** Read branch/worktree without traversing files, contacting remotes or changing Git state. */
-export async function gitContext(cwd: string): Promise<{ branch?: string; worktree?: string }> {
+export async function gitContext(cwd: string): Promise<{ branch?: string; worktree?: string; repository?: string; project?: string }> {
   const root = await git(cwd, ["rev-parse", "--show-toplevel"]);
   if (!root) return {};
   let branch = await git(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
@@ -19,5 +19,14 @@ export async function gitContext(cwd: string): Promise<{ branch?: string; worktr
     const commit = await git(cwd, ["rev-parse", "--short", "HEAD"]);
     if (commit) branch = `detached ${commit}`;
   }
-  return { branch: displayText(branch), worktree: displayText(basename(root)) };
+  const [common, remote] = await Promise.all([
+    git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+    git(cwd, ["remote", "get-url", "origin"]),
+  ]);
+  const main = common ? dirname(common) : root;
+  const github = remote?.match(/^(?:https?:\/\/github\.com\/|(?:ssh:\/\/)?git@github\.com[:/])([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i)?.[1];
+  const repository = github ?? basename(main);
+  const name = repository.split("/").at(-1) ?? basename(main);
+  return { branch: displayText(branch), worktree: displayText(basename(root)), repository,
+    project: root === main ? name : `${name}/${basename(root)}` };
 }

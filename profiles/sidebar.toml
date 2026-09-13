@@ -1,15 +1,36 @@
-# Merge into Herdr's config.toml. Replaces the default Agent rows only.
-# Official Herdr 0.9.0; custom omo agents cannot use rows_by_agent overrides.
+# Merge into Herdr's config.toml; reload config in the client menu.
+# OmO: reference, project, current summary, then state and elapsed time.
 [ui.sidebar.agents]
 rows = [
-  ["state_icon", "agent", "state_text"],
-  ["$omo_worktree", "pane"],
-  [{ token = "$omo_work_item", bold = true }],
-  [{ token = "$omo_branch", dim = true }],
-  ["$omo_task"],
-  ["$omo_tasks"],
-  [{ token = "$omo_attention", fg = "#f9e2af", bold = true, rules = [{ contains = "failed", fg = "#f38ba8" }] }],
-  ["$omo_result"],
-  ["$omo_elapsed"],
-  ["workspace", "tab"],
+  [{ token = "$omo_work_item", fg = "#89b4fa", bold = true, dim = false }],
+  [{ token = "$omo_project", fg = "#bac2de", dim = false }],
+  [{ token = "$omo_summary", fg = "#cdd6f4", dim = false, rules = [{ contains = "failed", fg = "#f38ba8", bold = true }, { contains = "input", fg = "#f9e2af", bold = true }] }],
+  ["state_icon", "state_text", { token = "$omo_elapsed_compact", fg = "#a6adc8", dim = false }],
 ]
+
+# Herdr 0.9.0 cannot override custom agents such as omo by name.
+# Preserve native identity rows for every built-in agent instead.
+[ui.sidebar.agents.rows_by_agent]
+pi = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+claude = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+codex = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+gemini = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+cursor = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+devin = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+agy = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+cline = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+omp = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+mastracode = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+opencode = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+copilot = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+kimi = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+kiro = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+droid = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+amp = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+grok = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+hermes = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+kilo = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+qodercli = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+qwen = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+maki = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]
+muse = [["state_icon", "machine", "workspace", "tab"], ["agent", "state_text"]]

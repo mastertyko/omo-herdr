@@ -14,8 +14,9 @@ test("metadata text is terminal-safe and byte-bounded; unknown context is not sh
 test("metadata replaces only owned fields and clears missing/expired information", () => {
   const args = metadataArgs({ title: "Task", model: "provider/model", activity: "Running bash" }, 10, "w1:p1");
   assert.ok(args.includes("custom:omo:metadata"));
-  assert.ok(args.includes("working=Running bash"));
-  assert.ok(!args.includes("--clear-state-labels"), "Herdr rejects setting and clearing the same field");
+  assert.ok(args.includes("omo_activity=Running bash"));
+  assert.ok(args.includes("--clear-state-labels"));
+  assert.ok(!args.includes("--state-label"), "native state text must stay short");
   assert.ok(!args.includes("--clear-title"));
   assert.ok(args.includes("omo_model=provider/model"));
   assert.equal(args[args.indexOf("--applies-to-source") + 1], "custom:omo");

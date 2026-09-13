@@ -83,30 +83,42 @@ The extension publishes the explicit session name as the pane title, with the fo
 | `$omo_context` | `42% (420/1000)`; `unknown` when usage is unavailable after compaction |
 | `$omo_activity` | `Running bash`, `Running read (+1)` or `Compacting context` |
 | `$omo_task` | Explicit short task label supplied by OmO |
-| `$omo_work_item` | Current PR/issue reference, e.g. `PR #42 · Issue #17` |
+| `$omo_work_item` | Compact reference, e.g. `PR #42` or `Issue #17` |
+| `$omo_project` | One compact repository/worktree identity |
+| `$omo_summary` | Attention, current activity, or a verified result, selected for the current state |
 | `$omo_tasks` | `2 running · 1 pending · 3 completed` |
 | `$omo_attention` | `Needs your input` or `1 failed task` |
 | `$omo_result` | Explicit outcome, e.g. `12 tests passed · PR #42` |
 | `$omo_branch` / `$omo_worktree` | Git branch / worktree directory name |
 | `$omo_elapsed` | `08:32` or `Waiting 02:14` |
+| `$omo_elapsed_compact` | `02:14`, with waiting status shown separately |
 | `$omo_context_meter` | `Context 42%`, `High context 80%`, `Critical context 90%` |
 | `$omo_context_percent` | Numeric `42`, for custom numeric color rules |
 
-Tool and compaction activity also label the existing `working` state. Waits and notifications
-continue to use the normal semantic states. Ordinary tool arguments, tool results and prompt
+The compact sidebar keeps lifecycle status separate from the current activity or result.
+Waits and notifications continue to use the normal semantic states. Ordinary tool arguments, tool results and prompt
 text are never copied automatically. The `herdr_summary` tool intentionally publishes only
 the short labels supplied to it. Session names and tool names are sanitized and length-limited for terminal display.
 
-For the complete session overview, merge [profiles/sidebar.toml](profiles/sidebar.toml)
-into your Herdr `config.toml`. It includes attention colors and elapsed time, but does not
-display context usage. The profile ships in the npm package. Keep a backup and replace an existing
-`[ui.sidebar.agents].rows` setting rather than defining the table twice. Use Herdr's global
+For the compact session overview, merge [profiles/sidebar.toml](profiles/sidebar.toml)
+into your Herdr `config.toml`. The profile uses at most four nonempty rows: PR/issue
+reference, project identity, current summary, and status with elapsed time. It omits
+context usage, duplicate pane/workspace titles, standalone branch names and completed-task
+counts. Attention and failures take precedence over ordinary summaries. References and
+summaries are not dimmed; long labels are shortened for narrow terminal panels.
+Paired references shorten labels and separators before dropping any identifier digits.
+When both numbers cannot fit, `+1` explicitly marks the omitted second reference.
+The profile ships in the npm package. Keep a backup and replace existing
+`[ui.sidebar.agents]` settings rather than defining tables twice. Preserve any personal
+`rows_by_agent` overrides when merging. Use Herdr's global
 menu **reload config** to refresh the client's sidebar. `herdr server reload-config` refreshes
 the server configuration; client presentation also needs the client menu action.
 
-This changes the default Agent layout. Missing custom tokens disappear for other agents.
-Herdr 0.9.0 only accepts built-in agent IDs in `rows_by_agent`, so `omo` cannot have a
-separate layout override. `$omo_activity` can be used instead of the built-in `state_text`.
+This changes the default Agent layout. Herdr 0.9.0 only accepts built-in agent IDs in
+`rows_by_agent`, so `omo` cannot have a separate layout override. The shipped overrides
+retain native identity rows for built-in agents. Missing custom tokens and empty rows
+disappear. Extremely narrow sidebars can still truncate text; put references on their
+own row rather than behind a long repository name.
 
 Metadata uses its own source, `custom:omo:metadata`, scoped to the `custom:omo` agent.
 It refreshes every 15 seconds, expires after 45 seconds without a refresh, and clears on
@@ -149,19 +161,21 @@ on unload. Session replacement clears the previous overview. If a future OmO ver
 changes the payload, lifecycle reporting and other metadata continue independently.
 
 The model-facing `herdr_summary` tool accepts optional `task`, `result` and `workItem` strings, each
-at most 160 characters (also sanitized to 160 UTF-8 bytes for Herdr). Its guideline asks
-OmO to supply a short task label at the start of substantial work and a verified result
-before finishing. For example:
+at most 160 characters. Use two to four words for task/result labels; existing longer
+labels are preserved in the session and shortened only for display. Supply the known
+PR/issue separately at the start and update it when the target changes. For example:
 
 ```json
-{"task":"Implement login","workItem":"PR #42 · Issue #17","result":"12 tests passed"}
+{"task":"Verify login","workItem":"PR owner/repo#42","result":"Tests passed"}
 ```
 
 These are explicit agent-reported labels, not independently inferred test/PR facts.
 When working on a PR or issue, OmO is instructed to set `workItem` at the start of each
 run and update it when the target changes or a PR is created. Include `owner/repo`
 when needed to distinguish repositories. No GitHub lookup or prompt scanning is used.
-The sidebar profile displays the reference in bold above the branch. Existing installs
+The sidebar puts the compact reference first, followed by one project identity and a
+short activity or verified result. Idle state and completed tasks never imply approval
+or a merged PR. Existing installs
 need the updated profile and an OmO reload/restart to load the new tool field.
 Empty strings clear fields. Labels are stored as custom entries in the current OmO session
 and restored from its active branch on reload/resume; this does not enable Herdr native

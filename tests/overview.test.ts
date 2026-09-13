@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createEventBus, SessionManager, type ExtensionAPI, type ExtensionContext, type ToolDefinition } from "@code-yeongyu/senpi";
 import { Overview, elapsed } from "../src/overview.ts";
 import { taskLabels, taskSnapshot } from "../src/tasks.ts";
@@ -85,7 +85,7 @@ test("Git identity supports unborn branches, detached HEAD, worktrees, and ordin
     assert.equal((await gitContext(directory)).branch, "main");
     git("-c", "user.name=QA", "-c", "user.email=qa@example.invalid", "commit", "--allow-empty", "-m", "fixture");
     git("worktree", "add", "-b", "feature", join(directory, "linked"));
-    assert.deepEqual(await gitContext(join(directory, "linked")), { branch: "feature", worktree: "linked" });
+    assert.deepEqual(await gitContext(join(directory, "linked")), { branch: "feature", worktree: "linked", repository: basename(directory), project: `${basename(directory)}/linked` });
     git("checkout", "--detach");
     assert.match((await gitContext(directory)).branch!, /^detached [a-f0-9]+$/);
   } finally { await rm(directory, { recursive: true, force: true }); }
