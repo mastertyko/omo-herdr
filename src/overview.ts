@@ -132,9 +132,13 @@ export class Overview {
     if (this.started === undefined || this.finished !== undefined) {
       this.started = now;
       this.finished = undefined;
-      this.task = this.result = this.workItem = undefined;
-      this.pi.appendEntry(ENTRY, {});
     }
+  }
+  newWork(now = Date.now()): void {
+    this.started = now;
+    this.finished = undefined;
+    this.task = this.result = this.workItem = undefined;
+    this.pi.appendEntry(ENTRY, {});
   }
   settle(aborted = false, now = Date.now()): void {
     if (this.started !== undefined && this.finished === undefined) this.finished = now;

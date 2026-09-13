@@ -64,7 +64,7 @@
     }
   },
   "devDependencies": {
-    "@code-yeongyu/senpi": "2026.9.12",
+    "@code-yeongyu/senpi": "2026.9.13",
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0"
   }
