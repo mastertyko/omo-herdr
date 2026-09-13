@@ -57,7 +57,7 @@ test("overview captures startup, isolates sessions, persists explicit results an
     overview.stop();
     overview.start(ctx);
     assert.equal(overview.metadata(false).result, "12 tests passed · PR #42");
-    overview.begin();
+    overview.newWork();
     assert.equal(overview.metadata(false).result, undefined);
     overview.settle(true);
     assert.equal(overview.metadata(false).result, "Stopped");
@@ -111,7 +111,7 @@ test("explicit PR and issue references reach Herdr, survive resume, and clear wi
     overview.stop();
     overview.start(ctx);
     assert.ok(tokens().includes("omo_work_item=PR #42 · Issue #17"), "resume restores the reference even after abort");
-    overview.begin(3000);
+    overview.newWork(3000);
     assert.ok(tokens().includes("omo_work_item"), "new work clears the old token");
     await tool.execute("issue", { workItem: "Issue #18" }, undefined, undefined, ctx);
     overview.begin(3500);

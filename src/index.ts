@@ -14,6 +14,7 @@ export default function omoHerdr(pi: ExtensionAPI): void {
   let active = false;
   let compacting = false;
   const tools = new Map<string, string>();
+  const userInputs = new Set<string>();
   let prompts: Array<{ kind: UIPromptKind; title?: string }> = [];
 
   pi.registerCommand("herdr", {
@@ -35,6 +36,7 @@ export default function omoHerdr(pi: ExtensionAPI): void {
     active = false;
     compacting = false;
     tools.clear();
+    userInputs.clear();
     prompts = [];
   }
 
@@ -70,6 +72,17 @@ export default function omoHerdr(pi: ExtensionAPI): void {
     publish(ctx);
   });
 
+  // Input is only a candidate until interception and admission have completed.
+  pi.on("input", event => {
+    if (reporter && overview && event.source !== "extension") userInputs.add(event.inputId);
+  });
+  pi.on("input_disposition", (event, ctx) => {
+    if (!userInputs.delete(event.inputId)) return;
+    if (event.disposition !== "started" && event.disposition !== "queued") return;
+    overview?.newWork();
+    publish(ctx);
+  });
+  // Autonomous turns and active resumes restart timing, not explicit metadata.
   pi.on("agent_start", (_event, ctx) => { if (!reporter) return; active = true; overview?.begin(); publish(ctx); });
   // agent_end can precede retries, compaction and queued continuations.
   pi.on("agent_settled", (_event, ctx) => {
